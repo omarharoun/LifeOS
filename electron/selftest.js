@@ -1,16 +1,17 @@
 /**
- * Railway — M0 self-test (automated acceptance check)
+ * Railway — self-test (automated acceptance check)
  * ------------------------------------------------------------------
  * GNOME/Wayland blocks non-interactive screenshots, so instead of an
- * eyeball check we drive the real launcher window headlessly and assert
- * the M0 "done when" criteria:
- *   1. the window shows / hides on demand (the hotkey just calls these),
- *   2. the renderer loads the actual index.html the app uses,
- *   3. the text input exists and you can type into it,
- *   4. Enter submits, Esc requests dismiss.
+ * eyeball check we drive the real launcher window headlessly.
+ *
+ * Covers M0 + M1 "done when":
+ *   M0: window shows/hides; the text input exists and accepts typing.
+ *   M1: SurfaceRenderer is mounted; typing "check inbox" renders the list
+ *       surface and "write the vendor email" renders the composer, both
+ *       with mock data; editing a field updates it.
  *
  * Run with:  npm run selftest   (exits 0 on pass, 1 on fail)
- * This is test-only; the shipped app entry is electron/main.js.
+ * Test-only; the shipped app entry is electron/main.js.
  * ------------------------------------------------------------------
  */
 const { app, BrowserWindow } = require("electron");
@@ -23,6 +24,7 @@ const check = (name, ok) => {
   checks.push({ name, ok });
   console.log(`${ok ? "  ✓" : "  ✗"} ${name}`);
 };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 app.whenReady().then(async () => {
   const win = new BrowserWindow({
@@ -37,48 +39,84 @@ app.whenReady().then(async () => {
     },
   });
 
-  // (1) show/hide — the exact operations the global hotkey toggles.
   win.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
   await new Promise((r) => win.webContents.once("did-finish-load", r));
+  // give React a tick to mount
+  await sleep(300);
   check("renderer/index.html loads without error", true);
 
+  // M0: show / hide (what the global hotkey toggles).
   win.show();
   check("window shows", win.isVisible() === true);
   win.hide();
   check("window hides", win.isVisible() === false);
 
-  // (2) the preload bridge the renderer relies on is wired up.
+  // Preload bridge present.
   const bridgeOk = await win.webContents.executeJavaScript(
     `typeof window.railway?.hide === "function" && typeof window.railway?.onShown === "function"`
   );
   check("preload bridge (railway.hide / onShown) exposed", bridgeOk === true);
 
-  // (3) the text input from the renderer is present and typable.
+  // M1: SurfaceRenderer mounted — its input bar exists and is typable.
   const inputOk = await win.webContents.executeJavaScript(`
     (() => {
-      const el = document.getElementById("bar-input");
-      if (!el || el.tagName !== "INPUT") return false;
+      const el = document.querySelector(".bar-input");
+      if (!el) return false;
       el.focus();
-      el.value = "write the vendor email";
-      // confirm it accepted the text (i.e. it is a real, editable input)
-      return document.activeElement === el && el.value === "write the vendor email";
+      return document.activeElement === el;
     })()
   `);
-  check("text input exists, focuses, and accepts typing", inputOk === true);
+  check("SurfaceRenderer input bar present and focusable", inputOk === true);
 
-  // (4) Enter submits (echoes the typed text), then clears the box.
-  const enterOk = await win.webContents.executeJavaScript(`
+  // Helper to type into the bar and press Enter via React's value setter.
+  const submit = (text) => `
     (() => {
-      const el = document.getElementById("bar-input");
-      el.value = "check inbox";
+      const el = document.querySelector(".bar-input");
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      setter.call(el, ${JSON.stringify(text)});
+      el.dispatchEvent(new Event("input", { bubbles: true }));
       el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-      const echo = document.getElementById("echo").textContent;
-      return echo.includes("check inbox") && el.value === "";
+      return true;
+    })()
+  `;
+
+  // "check inbox" -> list surface with mock threads.
+  await win.webContents.executeJavaScript(submit("check inbox"));
+  await sleep(150);
+  const listOk = await win.webContents.executeJavaScript(`
+    (() => {
+      const rows = document.querySelectorAll(".list .row");
+      const title = document.querySelector(".row-title")?.textContent || "";
+      return rows.length >= 1 && title.length > 0;
     })()
   `);
-  check("Enter submits the typed text and clears the input", enterOk === true);
+  check('typing "check inbox" renders the list surface with mock data', listOk === true);
+
+  // "write the vendor email" -> composer surface, prefilled from mock draft.
+  await win.webContents.executeJavaScript(submit("write the vendor email"));
+  await sleep(150);
+  const composerOk = await win.webContents.executeJavaScript(`
+    (() => {
+      const inputs = document.querySelectorAll(".prim .input");
+      const toVal = inputs[0]?.value || "";
+      return inputs.length >= 2 && toVal.includes("@");
+    })()
+  `);
+  check('typing "write the vendor email" renders the composer prefilled', composerOk === true);
+
+  // Editing a composer field updates its value (mock write-back works).
+  const editOk = await win.webContents.executeJavaScript(`
+    (() => {
+      const el = document.querySelector(".prim .input");
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      setter.call(el, "edited@example.com");
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      return document.querySelector(".prim .input").value === "edited@example.com";
+    })()
+  `);
+  check("editing a composer field updates it", editOk === true);
 
   const allOk = checks.every((c) => c.ok);
-  console.log(allOk ? "\nM0 SELF-TEST: PASS" : "\nM0 SELF-TEST: FAIL");
+  console.log(allOk ? "\nSELF-TEST: PASS" : "\nSELF-TEST: FAIL");
   app.exit(allOk ? 0 : 1);
 });

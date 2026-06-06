@@ -266,8 +266,11 @@ export default function App() {
       const t = text.toLowerCase().trim();
       setDissolving(false);
       if (!t) return;
-      if (/inbox|check|threads|mail/.test(t)) setSurfaceKey("inbox");
-      else if (/email|draft|write|reply|vendor/.test(t)) setSurfaceKey("email_draft");
+      // Word boundaries so "mail" doesn't match inside "email" (which would
+      // misroute "write the vendor email" to the inbox). This naive router is
+      // the stand-in the M2 AI router replaces.
+      if (/\b(inbox|threads)\b|\bcheck\b/.test(t)) setSurfaceKey("inbox");
+      else if (/\b(email|draft|write|reply|vendor|compose)\b/.test(t)) setSurfaceKey("email_draft");
       else {
         setSurfaceKey(null);
         flash(`"${text}" → the AI would just do this. No surface needed.`);

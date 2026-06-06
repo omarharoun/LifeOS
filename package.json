@@ -5,10 +5,17 @@
   "description": "A personal launcher — a surface only when you need one. (MVP, milestone M0)",
   "main": "electron/main.js",
   "scripts": {
-    "start": "electron .",
-    "selftest": "electron electron/selftest.js"
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "start": "npm run build && electron .",
+    "selftest": "npm run build && electron electron/selftest.js"
   },
   "devDependencies": {
-    "electron": "^33.2.1"
+    "electron": "^33.2.1",
+    "esbuild": "^0.24.2"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   }
 }
