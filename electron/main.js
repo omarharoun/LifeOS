@@ -14,7 +14,7 @@
 const { app, BrowserWindow, globalShortcut, ipcMain } = require("electron");
 const path = require("path");
 const { loadConfig } = require("./config");
-const { generateSurface } = require("./generate");
+const { routeRequest } = require("./generate");
 const seams = require("./seams");
 
 // A launcher window needs no GPU. Some Linux/Wayland setups have a flaky
@@ -76,13 +76,14 @@ app.whenReady().then(() => {
   // Renderer asks to dismiss (Esc key).
   ipcMain.on("window:hide", () => hideWindow());
 
-  // M2: generate a validated Surface for a typed request.
-  // M3: enrich it with real data (e.g. live inbox) before returning.
+  // M2/M4: route the request (do-it vs show-me) and, for surfaces, generate +
+  // validate. M3: enrich surfaces with real data (e.g. live inbox).
   ipcMain.handle("railway:generate", async (_evt, request) => {
     const cfg = loadConfig();
     try {
-      const res = await generateSurface(request, { apiKey: cfg.apiKey, model: cfg.model });
-      if (res.ok) res.data = await seams.enrichSurfaceData(res.surface, res.data);
+      const res = await routeRequest(request, { apiKey: cfg.apiKey, model: cfg.model });
+      if (res.ok && res.mode === "surface")
+        res.data = await seams.enrichSurfaceData(res.surface, res.data);
       return res;
     } catch (e) {
       return { ok: false, error: `generation failed: ${e?.message || e}` };

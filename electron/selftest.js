@@ -17,7 +17,7 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const { loadConfig } = require("./config");
-const { generateSurface } = require("./generate");
+const { routeRequest } = require("./generate");
 const seams = require("./seams");
 
 app.disableHardwareAcceleration();
@@ -32,9 +32,22 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 app.whenReady().then(async () => {
   // Mirror main.js's generate handler so the preload→IPC round-trip is real.
   ipcMain.handle("railway:generate", async (_e, request) => {
+    // M4: with no live key we can't reach the model, so script a do-it route
+    // for a known phrase to exercise the renderer's do-it UI deterministically.
+    if (/tell sarah/i.test(request)) {
+      return {
+        ok: true,
+        mode: "do",
+        capability: "email.send",
+        args: { to: "sarah@example.com", subject: "Running late", body: "10 minutes behind." },
+        summary: "Tell Sarah you're running late",
+        intent: "Tell Sarah you're running late",
+      };
+    }
     const cfg = loadConfig();
-    const res = await generateSurface(request, { apiKey: cfg.apiKey, model: cfg.model });
-    if (res.ok) res.data = await seams.enrichSurfaceData(res.surface, res.data);
+    const res = await routeRequest(request, { apiKey: cfg.apiKey, model: cfg.model });
+    if (res.ok && res.mode === "surface")
+      res.data = await seams.enrichSurfaceData(res.surface, res.data);
     return res;
   });
   ipcMain.handle("railway:resolveQuery", async (_e, source) => ({
@@ -188,6 +201,33 @@ app.whenReady().then(async () => {
   }
   const sendOk = /(sent|simulated send) to .*@/i.test(sendDiag.toast) && sendDiag.surfaceGone;
   check("clicking Send invokes email.send (simulated) and dissolves", sendOk === true);
+
+  // M4: "tell Sarah I'm running late" routes to do-it → shows the catchable
+  // pending bar, no surface.
+  await win.webContents.executeJavaScript(submit("tell Sarah I'm running late"));
+  const pendingShown = await waitFor(
+    `!!document.querySelector(".pending") && !document.querySelector(".surface")`
+  );
+  check('do-it route shows the catchable "doing this now" bar (no screen)', pendingShown === true);
+
+  // M4: the one-tap fix — "no, show me the draft" opens an editable composer.
+  await win.webContents.executeJavaScript(`document.querySelector(".pending .btn.ghost")?.click()`);
+  const draftShown = await waitFor(`
+    !document.querySelector(".pending") &&
+    document.querySelectorAll(".prim .input").length >= 2 &&
+    (document.querySelectorAll(".prim .input")[0]?.value || "").includes("sarah@")
+  `);
+  check('"show me the draft" turns the do-it into an editable composer', draftShown === true);
+
+  // M4: letting it commit (tap "do it now") fires the action through the registry.
+  await win.webContents.executeJavaScript(submit("tell Sarah I'm running late"));
+  await waitFor(`!!document.querySelector(".pending .btn.solid")`);
+  await win.webContents.executeJavaScript(`document.querySelector(".pending .btn.solid")?.click()`);
+  const committed = await waitFor(`
+    !document.querySelector(".pending") &&
+    /running late/i.test(document.querySelector(".toast")?.textContent || "")
+  `);
+  check('"do it now" commits the action (simulated send)', committed === true);
 
   const allOk = checks.every((c) => c.ok);
   console.log(allOk ? "\nSELF-TEST: PASS" : "\nSELF-TEST: FAIL");

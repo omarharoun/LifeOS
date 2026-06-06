@@ -55,6 +55,99 @@ Guidance:
 
 Call emit_surface with { surface, data }. Always call the tool.`;
 
+const ROUTER_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
+
+ROUTING — first decide between two tools:
+  - do_silently: the user clearly wants it DONE now, no screen to review.
+    Examples: "tell Sarah I'm running late", "reply yes to the invite",
+    "let the vendor know we got it". Provide the capability (e.g. "email.send"),
+    its args (e.g. { to, subject, body }), and a short human summary.
+    Infer a reasonable recipient/subject/body from the request.
+  - emit_surface: the user wants to see/edit something before it happens, or
+    is browsing. Examples: "draft the tricky email", "write the vendor email",
+    "check inbox". Produce a Surface (+ data) as described above.
+
+When in doubt, prefer emit_surface — showing a screen is the safe default.
+Call exactly one tool.`;
+
+function doSilentlyTool() {
+  return {
+    name: "do_silently",
+    description:
+      "Use when the user clearly wants the task done immediately with no screen to review.",
+    input_schema: {
+      type: "object",
+      properties: {
+        capability: { type: "string", description: "e.g. email.send" },
+        args: {
+          type: "object",
+          description: "Arguments for the capability, e.g. { to, subject, body }.",
+          additionalProperties: true,
+        },
+        summary: {
+          type: "string",
+          description: "Short human summary, e.g. \"Email Sarah you're running late\".",
+        },
+      },
+      required: ["capability", "args", "summary"],
+    },
+  };
+}
+
+/**
+ * M4 router: one model call decides do-it vs show-me.
+ * @returns {Promise<
+ *   {ok:true, mode:"do", capability, args, summary, intent} |
+ *   {ok:true, mode:"surface", surface, data, intent} |
+ *   {ok:false, error, needKey?:boolean}>}
+ */
+async function routeRequest(requestText, { apiKey, model, history = [], client } = {}) {
+  if (!apiKey && !client)
+    return { ok: false, needKey: true, error: "No Anthropic API key configured." };
+
+  const { validateSurface, surfaceJsonSchema } = await contract();
+  const emitTool = buildToolSchema(surfaceJsonSchema());
+  client = client || new Anthropic({ apiKey });
+
+  const historyBlock =
+    history.length > 0
+      ? `\n\nRecent things this user did (for better defaults/pre-fill):\n` +
+        history.map((h) => `- "${h.request}" → ${h.intent}`).join("\n")
+      : "";
+
+  let resp;
+  try {
+    resp = await client.messages.create({
+      model,
+      max_tokens: 2048,
+      system: ROUTER_SYSTEM_PROMPT,
+      tools: [emitTool, doSilentlyTool()],
+      tool_choice: { type: "any" },
+      messages: [{ role: "user", content: `Request: ${requestText}${historyBlock}` }],
+    });
+  } catch (e) {
+    return { ok: false, error: `Anthropic API error: ${e?.message || e}` };
+  }
+
+  const toolUse = resp.content.find((c) => c.type === "tool_use");
+  if (!toolUse) return { ok: false, error: "model did not choose an action" };
+
+  if (toolUse.name === "do_silently") {
+    const { capability, args, summary } = toolUse.input || {};
+    return { ok: true, mode: "do", capability, args: args || {}, summary: summary || "", intent: summary || requestText };
+  }
+
+  // emit_surface chosen — validate; if invalid, fall back to the repair loop.
+  const { surface, data } = toolUse.input || {};
+  const valid = validateSurface(surface);
+  if (valid.ok)
+    return { ok: true, mode: "surface", surface: valid.surface, data: data || {}, intent: valid.surface.intent };
+
+  const repaired = await generateSurface(requestText, { apiKey, model, history, client });
+  if (repaired.ok) return { ok: true, mode: "surface", ...repaired };
+  return repaired;
+}
+
 function buildToolSchema(surfaceJsonSchema) {
   // Strip the $schema header zod adds; Anthropic wants a bare JSON Schema.
   const surface = { ...surfaceJsonSchema };
@@ -154,4 +247,4 @@ async function generateSurface(requestText, { apiKey, model, history = [], clien
   };
 }
 
-module.exports = { generateSurface };
+module.exports = { generateSurface, routeRequest };

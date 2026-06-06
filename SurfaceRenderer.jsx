@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useRef } from "react";
 
 /**
  * SurfaceRenderer
@@ -100,6 +100,45 @@ const SURFACES = {
     ],
   },
 };
+
+// How long a silent do-it waits (catchable) before it actually commits.
+const AUTOSEND_MS = 4500;
+
+/* ---------- M4: build a review surface from a do-it action ---------- */
+// When the router chose "do it silently" but the user taps "show me the draft",
+// turn the action's args into a composer+confirm so they can edit and send.
+function composerFromArgs(capability, args = {}) {
+  const draft = {
+    to: args.to ?? "",
+    subject: args.subject ?? "",
+    body: args.body ?? "",
+  };
+  const surface = {
+    id: "srf_review",
+    intent: "Review before sending",
+    ephemeral: true,
+    blocks: [
+      {
+        type: "composer",
+        id: "cmp_review",
+        fields: [
+          { key: "to", label: "To", binding: { kind: "ref", path: "draft.to" } },
+          { key: "subject", label: "Subject", binding: { kind: "ref", path: "draft.subject" } },
+          { key: "body", label: "Body", binding: { kind: "ref", path: "draft.body" }, multiline: true },
+        ],
+      },
+      {
+        type: "confirm",
+        id: "cnf_review",
+        summary: `Send to ${draft.to || "recipient"}?`,
+        preview: { kind: "ref", path: "draft" },
+        onConfirm: { capability, args: { draft: { kind: "ref", path: "draft" } } },
+        onCancel: { capability: "ui.dismiss", args: {} },
+      },
+    ],
+  };
+  return { surface, data: { draft } };
+}
 
 /* ============================================================
  *  PRIMITIVES
@@ -216,6 +255,8 @@ export default function App() {
   const [dissolving, setDissolving] = useState(false);
   const [toast, setToast] = useState(null);
   const [query, setQuery] = useState("");
+  const [pending, setPending] = useState(null); // M4: a do-it action awaiting auto-commit
+  const pendingTimer = useRef(null);
 
   // A generated surface wins; otherwise fall back to the hardcoded examples.
   const surface = genSurface ?? (surfaceKey ? SURFACES[surfaceKey] : null);
@@ -309,12 +350,49 @@ export default function App() {
     [flash]
   );
 
-  // M2: the AI generates the screen. Type a request → main process asks Claude
-  // for a Surface, validates it against the contract, returns it here to render.
-  // Falls back to keywordRoute when there's no bridge/key or on error.
+  // M4: clear any pending do-it action and its auto-commit timer.
+  const clearPending = useCallback(() => {
+    if (pendingTimer.current) {
+      window.clearTimeout(pendingTimer.current);
+      pendingTimer.current = null;
+    }
+    setPending(null);
+  }, []);
+
+  // M4: actually run a routed do-it action (the silent path) for real.
+  const commitPending = useCallback(
+    async (p) => {
+      clearPending();
+      if (window.railway?.invoke) {
+        const res = await window.railway.invoke(p.capability, p.args);
+        if (res?.ok) flash(res.simulated ? `Simulated: ${p.summary} ✓` : `${p.summary} ✓`);
+        else flash(res?.error || `Failed: ${p.summary}`);
+      } else {
+        flash(`${p.summary} ✓`); // standalone demo
+      }
+    },
+    [clearPending, flash]
+  );
+
+  // M4: the one-tap fix — "no, show me the draft" turns the action into an
+  // editable composer instead of sending.
+  const showDraftInstead = useCallback(
+    (p) => {
+      clearPending();
+      const { surface, data: d } = composerFromArgs(p.capability, p.args);
+      setData(d);
+      setSurfaceKey(null);
+      setGenSurface(surface);
+    },
+    [clearPending]
+  );
+
+  // M2/M4: type a request → main routes it (do-it vs show-me) and, for screens,
+  // generates a validated Surface. Falls back to keywordRoute with no bridge/key.
   const summon = useCallback(
     async (text) => {
       setDissolving(false);
+      clearPending();
       if (!text.trim()) return;
       setQuery("");
 
@@ -322,6 +400,16 @@ export default function App() {
         setBusy(true);
         try {
           const res = await window.railway.generate(text);
+          if (res?.ok && res.mode === "do") {
+            // Silent do-it, but catchable: show a brief "sending…" with a
+            // one-tap escape to the draft before it auto-commits.
+            const p = { capability: res.capability, args: res.args, summary: res.summary || res.intent };
+            setGenSurface(null);
+            setSurfaceKey(null);
+            setPending(p);
+            pendingTimer.current = window.setTimeout(() => commitPending(p), AUTOSEND_MS);
+            return;
+          }
           if (res?.ok) {
             setData(res.data || {});
             setSurfaceKey(null);
@@ -338,7 +426,7 @@ export default function App() {
 
       keywordRoute(text);
     },
-    [flash, keywordRoute]
+    [flash, keywordRoute, clearPending, commitPending]
   );
 
   const styles = useMemo(() => CSS, []);
@@ -367,6 +455,22 @@ export default function App() {
         <div className="canvas">
           {busy ? (
             <div className="empty">thinking…</div>
+          ) : pending ? (
+            // M4: the do-it path — done silently, but catchable for a moment.
+            <div className="pending">
+              <span className="pending-bar" />
+              <div className="pending-row">
+                <span className="pending-summary">{pending.summary} — doing this now…</span>
+                <span className="pending-actions">
+                  <button className="btn ghost" onClick={() => showDraftInstead(pending)}>
+                    no — show me the draft
+                  </button>
+                  <button className="btn solid" onClick={() => commitPending(pending)}>
+                    do it now
+                  </button>
+                </span>
+              </div>
+            </div>
           ) : surface ? (
             <SurfaceView
               surface={surface}
@@ -456,6 +560,14 @@ const CSS = `
 .btn.solid{ background:var(--clay); border-color:var(--clay); color:#fdf6f2; }
 .btn.solid:hover{ background:var(--clay-soft); }
 .err{ color:var(--clay); font-size:12px; }
+.pending{ background:#fffdf8; border:1px solid var(--line); border-radius:14px; padding:16px 18px;
+  box-shadow:0 14px 40px -28px rgba(33,29,24,.6); animation:rise .3s ease both; overflow:hidden; position:relative; }
+.pending-bar{ position:absolute; left:0; top:0; height:3px; background:var(--clay);
+  width:100%; transform-origin:left; animation:drain 4.5s linear forwards; }
+@keyframes drain{ from{ transform:scaleX(1);} to{ transform:scaleX(0);} }
+.pending-row{ display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.pending-summary{ font-size:13px; color:var(--ink); font-family:'Fraunces',serif; font-style:italic; }
+.pending-actions{ display:flex; gap:8px; }
 .toast{ position:fixed; bottom:26px; left:50%; transform:translateX(-50%);
   background:var(--ink); color:var(--paper); padding:10px 18px; border-radius:30px;
   font-size:12px; box-shadow:0 14px 34px -16px rgba(0,0,0,.6); animation:rise .3s ease both; }
