@@ -14,10 +14,14 @@ const { routeRequest } = require("../electron/generate");
   }
   console.log(`LIVE: provider=${cfg.provider} model=${cfg.model}\n`);
 
+  // routeRequest only PLANS — it never executes — so the createEvent case is
+  // safe (no real event is created here).
   const cases = [
     { req: "draft the tricky email to the vendor about the overcharge", want: "surface" },
     { req: "tell Sarah I'm running late", want: "do" },
     { req: "check inbox", want: "surface" },
+    { req: "what's on my calendar this week", want: "surface" },
+    { req: "add a 30 minute coffee with Alex tomorrow at 10am", want: "do" },
   ];
 
   let failures = 0;

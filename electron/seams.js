@@ -11,18 +11,25 @@
  * ------------------------------------------------------------------
  */
 const gmail = require("./gmail");
+const calendar = require("./calendar");
+const auth = require("./google-auth");
 
-// Mock inbox used until Gmail is connected (mirrors SurfaceRenderer's demo).
+// Mock data used until Google is connected (mirrors SurfaceRenderer's demo).
 const MOCK_INBOX = [
   { id: "t1", from: "Sarah Chen", snippet: "Can we move the 3pm?", date: "9:02" },
   { id: "t2", from: "Vendor Billing", snippet: "Q3 invoice attached", date: "Tue" },
   { id: "t3", from: "Design weekly", snippet: "Notes from standup", date: "Mon" },
 ];
+const MOCK_AGENDA = [
+  { id: "e1", title: "Standup", when: "Today 9:30 AM", location: "Zoom" },
+  { id: "e2", title: "Lunch w/ Sarah", when: "Today 12:30 PM", location: "Cafe Luce" },
+  { id: "e3", title: "Design review", when: "Tue 3:00 PM", location: "Room 2" },
+];
 
 /** DATA seam: resolve a query source to a collection. */
 async function resolveQuery(source) {
   if (source === "inbox") {
-    if (gmail.isAuthorized()) {
+    if (auth.isAuthorized()) {
       try {
         return await gmail.listInbox(12);
       } catch (e) {
@@ -30,6 +37,16 @@ async function resolveQuery(source) {
       }
     }
     return MOCK_INBOX;
+  }
+  if (source === "agenda" || source === "calendar" || source === "events") {
+    if (auth.isAuthorized()) {
+      try {
+        return await calendar.listUpcoming(12);
+      } catch (e) {
+        return { error: `Calendar read failed: ${e?.message || e}`, items: MOCK_AGENDA };
+      }
+    }
+    return MOCK_AGENDA;
   }
   return []; // unknown source — empty for now
 }
@@ -72,14 +89,28 @@ async function invokeCapability(name, args = {}) {
     }
     case "email.openThread":
       return { ok: true, note: "openThread is not wired yet" };
+    case "calendar.createEvent": {
+      const a = args.event || args;
+      if (!a.summary && !a.title) return { ok: false, error: "No event title." };
+      const eventArgs = { ...a, summary: a.summary || a.title };
+      if (auth.isAuthorized()) {
+        try {
+          const created = await calendar.createEvent(eventArgs);
+          return { ok: true, summary: created.summary, id: created.id, link: created.htmlLink, simulated: false };
+        } catch (e) {
+          return { ok: false, error: `Create event failed: ${e?.message || e}` };
+        }
+      }
+      return { ok: true, summary: eventArgs.summary, simulated: true };
+    }
     default:
       return { ok: false, error: `Unknown capability: ${name}` };
   }
 }
 
 async function status() {
-  const configured = gmail.isConfigured();
-  const authorized = gmail.isAuthorized();
+  const configured = auth.isConfigured();
+  const authorized = auth.isAuthorized();
   let email = null;
   if (authorized) {
     try {
@@ -91,4 +122,4 @@ async function status() {
   return { configured, authorized, email };
 }
 
-module.exports = { resolveQuery, enrichSurfaceData, invokeCapability, status, MOCK_INBOX };
+module.exports = { resolveQuery, enrichSurfaceData, invokeCapability, status, MOCK_INBOX, MOCK_AGENDA };

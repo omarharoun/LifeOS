@@ -8,7 +8,7 @@
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
     "start": "npm run build && electron .",
-    "test": "npm run build && node test/generate.test.js && node test/route.test.js && node test/gmail.test.js && node test/memory.test.js && node test/llm.test.js",
+    "test": "npm run build && node test/generate.test.js && node test/route.test.js && node test/gmail.test.js && node test/calendar.test.js && node test/memory.test.js && node test/llm.test.js",
     "live": "node test/live.js",
     "gmail-auth": "node electron/gmail-auth.js",
     "selftest": "npm run build && electron electron/selftest.js"

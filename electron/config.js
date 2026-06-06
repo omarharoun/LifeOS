@@ -12,13 +12,11 @@
  * ------------------------------------------------------------------
  */
 const fs = require("fs");
-const path = require("path");
-
-const ROOT = path.join(__dirname, "..");
+const { dataPath } = require("./paths");
 
 function readJsonConfig() {
   try {
-    const raw = fs.readFileSync(path.join(ROOT, "railway.config.json"), "utf8");
+    const raw = fs.readFileSync(dataPath("railway.config.json"), "utf8");
     return JSON.parse(raw);
   } catch {
     return {};
@@ -28,7 +26,7 @@ function readJsonConfig() {
 function readDotEnv() {
   const out = {};
   try {
-    const raw = fs.readFileSync(path.join(ROOT, ".env"), "utf8");
+    const raw = fs.readFileSync(dataPath(".env"), "utf8");
     for (const line of raw.split("\n")) {
       const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
       if (m) out[m[1]] = m[2].replace(/^["']|["']$/g, "");

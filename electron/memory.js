@@ -11,9 +11,9 @@
  * ------------------------------------------------------------------
  */
 const fs = require("fs");
-const path = require("path");
+const { dataPath } = require("./paths");
 
-const DEFAULT_FILE = path.join(__dirname, "..", "memory.json");
+const DEFAULT_FILE = dataPath("memory.json");
 
 const STOPWORDS = new Set(
   "the a an to of for and or but in on at my me i you your is it that this with".split(" ")

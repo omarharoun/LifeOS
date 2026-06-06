@@ -6,30 +6,12 @@
  *   - DATA: list real inbox threads (DataContext query "inbox").
  *   - ACTIONS: actually send an email (CapabilityRegistry "email.send").
  *
- * Auth is Google OAuth (Desktop-app client) with a loopback redirect. You
- * supply gmail.credentials.json (from Google Cloud Console); the token is
- * cached in gmail.token.json. Both are gitignored. Run the one-time consent
- * with `npm run gmail-auth`.
- *
- * If credentials/token are absent the app still runs — the caller falls back
- * to mock inbox data and a simulated send (see electron/seams.js).
+ * Auth lives in google-auth.js (shared with calendar.js). If credentials/token
+ * are absent the caller falls back to mock inbox + simulated send (seams.js).
  * ------------------------------------------------------------------
  */
-const fs = require("fs");
-const http = require("http");
-const path = require("path");
-const { URL } = require("url");
 const { google } = require("googleapis");
-
-const ROOT = path.join(__dirname, "..");
-const CRED_PATH = path.join(ROOT, "gmail.credentials.json");
-const TOKEN_PATH = path.join(ROOT, "gmail.token.json");
-
-// Read inbox + send. (gmail.send is narrower than full gmail.modify.)
-const SCOPES = [
-  "https://www.googleapis.com/auth/gmail.readonly",
-  "https://www.googleapis.com/auth/gmail.send",
-];
+const auth = require("./google-auth");
 
 /* ---------- pure helpers (unit-tested, no network) ---------- */
 
@@ -67,108 +49,17 @@ function shortDate(dateStr, now = new Date()) {
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return "";
   const sameDay = d.toDateString() === now.toDateString();
-  if (sameDay)
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (sameDay) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
-}
-
-/* ---------- config / auth ---------- */
-
-// RAILWAY_NO_GMAIL forces the mock/simulated path regardless of real
-// credentials — used by tests and the hermetic selftest so they can never
-// touch the real account or send a live email.
-function isConfigured() {
-  if (process.env.RAILWAY_NO_GMAIL) return false;
-  return fs.existsSync(CRED_PATH);
-}
-function isAuthorized() {
-  if (process.env.RAILWAY_NO_GMAIL) return false;
-  return fs.existsSync(CRED_PATH) && fs.existsSync(TOKEN_PATH);
-}
-
-function readCredentials() {
-  const raw = JSON.parse(fs.readFileSync(CRED_PATH, "utf8"));
-  const c = raw.installed || raw.web;
-  if (!c) throw new Error("gmail.credentials.json: expected an 'installed' or 'web' client.");
-  return c;
-}
-
-function makeOAuthClient(redirectUri) {
-  const c = readCredentials();
-  return new google.auth.OAuth2(
-    c.client_id,
-    c.client_secret,
-    redirectUri || (c.redirect_uris && c.redirect_uris[0]) || "http://localhost"
-  );
-}
-
-/** Authorized client from the cached token (auto-refresh on use). */
-function getAuthorizedClient() {
-  if (!isAuthorized()) throw new Error("Gmail not authorized — run `npm run gmail-auth`.");
-  const oauth = makeOAuthClient();
-  oauth.setCredentials(JSON.parse(fs.readFileSync(TOKEN_PATH, "utf8")));
-  // Persist refreshed tokens so we don't re-consent.
-  oauth.on("tokens", (t) => {
-    const merged = { ...JSON.parse(fs.readFileSync(TOKEN_PATH, "utf8")), ...t };
-    fs.writeFileSync(TOKEN_PATH, JSON.stringify(merged, null, 2));
-  });
-  return oauth;
-}
-
-/**
- * Interactive one-time consent via a loopback server. `openUrl` defaults to
- * printing the URL; in Electron pass shell.openExternal.
- */
-async function runConsentFlow({ openUrl } = {}) {
-  if (!isConfigured())
-    throw new Error("Missing gmail.credentials.json (see README / Google Cloud Console).");
-
-  return new Promise((resolve, reject) => {
-    let oauth; // set once the server is listening and we know the redirect port
-
-    const server = http.createServer(async (req, res) => {
-      try {
-        const code = new URL(req.url, "http://localhost").searchParams.get("code");
-        if (!code) {
-          res.writeHead(400).end("No authorization code in request.");
-          return;
-        }
-        res.writeHead(200, { "Content-Type": "text/html" });
-        res.end("<h2>Railway is connected to Gmail. You can close this tab.</h2>");
-        server.close();
-        const { tokens } = await oauth.getToken(code);
-        fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens, null, 2));
-        resolve(tokens);
-      } catch (e) {
-        reject(e);
-      }
-    });
-
-    server.on("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const port = server.address().port;
-      // localhost (not 127.0.0.1) to match the Desktop client's registered
-      // http://localhost redirect; loopback allows any port.
-      oauth = makeOAuthClient(`http://localhost:${port}`);
-      const authUrl = oauth.generateAuthUrl({
-        access_type: "offline",
-        prompt: "consent",
-        scope: SCOPES,
-      });
-      if (openUrl) openUrl(authUrl);
-      else console.log("\nOpen this URL to authorize Railway → Gmail:\n\n" + authUrl + "\n");
-    });
-  });
 }
 
 /* ---------- API calls ---------- */
 
 async function listInbox(max = 10) {
-  const auth = getAuthorizedClient();
-  const gmail = google.gmail({ version: "v1", auth });
+  const gmail = google.gmail({ version: "v1", auth: auth.getAuthorizedClient() });
   const list = await gmail.users.messages.list({ userId: "me", q: "in:inbox", maxResults: max });
   const ids = (list.data.messages || []).map((m) => m.id);
-  const items = await Promise.all(
+  return Promise.all(
     ids.map(async (id) => {
       const msg = await gmail.users.messages.get({
         userId: "me",
@@ -180,20 +71,17 @@ async function listInbox(max = 10) {
       return { id, from, snippet: msg.data.snippet || "", date: shortDate(date) };
     })
   );
-  return items;
 }
 
 async function sendMessage({ to, subject, body }) {
-  const auth = getAuthorizedClient();
-  const gmail = google.gmail({ version: "v1", auth });
+  const gmail = google.gmail({ version: "v1", auth: auth.getAuthorizedClient() });
   const raw = buildRawMessage({ to, subject, body });
   const res = await gmail.users.messages.send({ userId: "me", requestBody: { raw } });
   return { id: res.data.id, threadId: res.data.threadId };
 }
 
 async function getProfileEmail() {
-  const auth = getAuthorizedClient();
-  const gmail = google.gmail({ version: "v1", auth });
+  const gmail = google.gmail({ version: "v1", auth: auth.getAuthorizedClient() });
   const res = await gmail.users.getProfile({ userId: "me" });
   return res.data.emailAddress;
 }
@@ -202,12 +90,13 @@ module.exports = {
   buildRawMessage,
   pickHeaders,
   shortDate,
-  isConfigured,
-  isAuthorized,
-  runConsentFlow,
+  // auth re-exported for backward compatibility (gmail-auth.js, seams.js).
+  isConfigured: auth.isConfigured,
+  isAuthorized: auth.isAuthorized,
+  runConsentFlow: auth.runConsentFlow,
   listInbox,
   sendMessage,
   getProfileEmail,
-  CRED_PATH,
-  TOKEN_PATH,
+  CRED_PATH: auth.CRED_PATH,
+  TOKEN_PATH: auth.TOKEN_PATH,
 };

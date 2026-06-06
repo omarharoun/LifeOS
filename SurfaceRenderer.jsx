@@ -106,13 +106,43 @@ const AUTOSEND_MS = 4500;
 
 /* ---------- M4: build a review surface from a do-it action ---------- */
 // When the router chose "do it silently" but the user taps "show me the draft",
-// turn the action's args into a composer+confirm so they can edit and send.
+// turn the action's args into a composer+confirm so they can edit and confirm.
+// Shaped per capability (email vs calendar) so the right fields show.
 function composerFromArgs(capability, args = {}) {
-  const draft = {
-    to: args.to ?? "",
-    subject: args.subject ?? "",
-    body: args.body ?? "",
-  };
+  if (capability === "calendar.createEvent") {
+    const draft = {
+      summary: args.summary ?? args.title ?? "",
+      start: args.start ?? "",
+      location: args.location ?? "",
+    };
+    const surface = {
+      id: "srf_review",
+      intent: "Review before adding to calendar",
+      ephemeral: true,
+      blocks: [
+        {
+          type: "composer",
+          id: "cmp_review",
+          fields: [
+            { key: "summary", label: "Event", binding: { kind: "ref", path: "draft.summary" } },
+            { key: "start", label: "When", binding: { kind: "ref", path: "draft.start" } },
+            { key: "location", label: "Where", binding: { kind: "ref", path: "draft.location" } },
+          ],
+        },
+        {
+          type: "confirm",
+          id: "cnf_review",
+          summary: `Add "${draft.summary || "event"}" to your calendar?`,
+          onConfirm: { capability, args: { event: { kind: "ref", path: "draft" } } },
+          onCancel: { capability: "ui.dismiss", args: {} },
+        },
+      ],
+    };
+    return { surface, data: { draft } };
+  }
+
+  // default: email composer
+  const draft = { to: args.to ?? "", subject: args.subject ?? "", body: args.body ?? "" };
   const surface = {
     id: "srf_review",
     intent: "Review before sending",
@@ -316,13 +346,17 @@ export default function App() {
         return dissolve();
       }
 
-      // M3: route real capabilities to the main-process registry (Gmail).
+      // M3+: route real capabilities to the main-process registry (Gmail/Calendar).
       if (window.railway?.invoke) {
         const res = await window.railway.invoke(action.capability, { ...resolvedArgs, ...ctx });
         if (res?.ok) {
           if (action.capability === "email.send") {
             flash(res.simulated ? `Simulated send to ${res.to} ✓` : `Sent to ${res.to} ✓`);
             remember(true); // M5: task done
+            dissolve();
+          } else if (action.capability === "calendar.createEvent") {
+            flash(res.simulated ? `Simulated: added "${res.summary}" ✓` : `Added "${res.summary}" to your calendar ✓`);
+            remember(true);
             dissolve();
           } else {
             flash(res.note || "Done ✓");

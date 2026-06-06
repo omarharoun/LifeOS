@@ -46,11 +46,21 @@ Two hard rules from the contract:
   2. ACTIONS BY NAME. Actions reference a capability string like "email.send"
      or "ui.dismiss" — never code. Use "ui.dismiss" for cancel.
 
+Capabilities you may reference: "email.send", "calendar.createEvent", "ui.dismiss".
+
+Known query sources and the item fields each row has (use these exact field
+names in your {{templates}}):
+  - "inbox"  → { from, snippet, date }      (email threads)
+  - "agenda" → { title, when, location }    (upcoming calendar events)
+
 Guidance:
   - Keep surfaces minimal. A draft email = one composer + one confirm to send.
-  - Pre-fill sensible content in "data" so the screen is useful immediately.
+    Showing the schedule = one list with source { kind:"query", source:"agenda" }.
+  - Pre-fill sensible content in "data" so the screen is useful immediately. For
+    a live list (inbox/agenda) you may leave data for that source empty — the app
+    fills it from the real source.
   - Use ref bindings for composer fields and confirm previews; use a query
-    binding ({ kind: "query", source: "inbox" }) for lists of live data.
+    binding for lists of live data.
   - Give every node a short unique id.
 
 Call emit_surface with { surface, data }. Always call the tool.`;
@@ -59,10 +69,10 @@ const ROUTER_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
 
 ROUTING — first decide between two tools:
   - do_silently: the user clearly wants it DONE now, no screen to review.
-    Examples: "tell Sarah I'm running late", "reply yes to the invite",
-    "let the vendor know we got it". Provide the capability (e.g. "email.send"),
-    its args (e.g. { to, subject, body }), and a short human summary.
-    Infer a reasonable recipient/subject/body from the request.
+    Examples: "tell Sarah I'm running late" → email.send { to, subject, body };
+    "add lunch with Sam tomorrow at noon" → calendar.createEvent
+    { summary, start (ISO 8601), end?, location? }. Provide the capability, its
+    args, and a short human summary. Infer reasonable values from the request.
   - emit_surface: the user wants to see/edit something before it happens, or
     is browsing. Examples: "draft the tricky email", "write the vendor email",
     "check inbox". Produce a Surface (+ data) as described above.
