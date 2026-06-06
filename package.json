@@ -2,13 +2,13 @@
   "name": "railway",
   "version": "0.0.0",
   "private": true,
-  "description": "A personal launcher — a surface only when you need one. (MVP, milestone M0)",
+  "description": "A personal launcher — a surface only when you need one. (MVP M0–M5)",
   "main": "electron/main.js",
   "scripts": {
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
     "start": "npm run build && electron .",
-    "test": "npm run build && node test/generate.test.js && node test/route.test.js && node test/gmail.test.js",
+    "test": "npm run build && node test/generate.test.js && node test/route.test.js && node test/gmail.test.js && node test/memory.test.js",
     "gmail-auth": "node electron/gmail-auth.js",
     "selftest": "npm run build && electron electron/selftest.js"
   },

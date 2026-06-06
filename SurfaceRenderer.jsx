@@ -257,6 +257,7 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [pending, setPending] = useState(null); // M4: a do-it action awaiting auto-commit
   const pendingTimer = useRef(null);
+  const task = useRef(null); // M5: the in-flight task being timed/logged
 
   // A generated surface wins; otherwise fall back to the hardcoded examples.
   const surface = genSurface ?? (surfaceKey ? SURFACES[surfaceKey] : null);
@@ -267,7 +268,27 @@ export default function App() {
     flash._t = window.setTimeout(() => setToast(null), 2600);
   }, []);
 
-  const onWrite = useCallback((path, value) => setData((d) => setPath(d, path, value)), []);
+  const onWrite = useCallback((path, value) => {
+    if (task.current) task.current.edits += 1; // M5: count edits as a quality signal
+    setData((d) => setPath(d, path, value));
+  }, []);
+
+  // M5: log a completed task to memory (request, route, edits, time-to-done).
+  const remember = useCallback((committed) => {
+    const t = task.current;
+    if (!t) return;
+    task.current = null;
+    const record = {
+      request: t.request,
+      intent: t.intent,
+      mode: t.mode,
+      edits: t.edits,
+      committed,
+      routeCorrected: !!t.routeCorrected,
+      timeToDoneMs: Date.now() - t.startTs,
+    };
+    window.railway?.remember?.(record);
+  }, []);
 
   const dissolve = useCallback(() => {
     setDissolving(true);
@@ -289,8 +310,11 @@ export default function App() {
         ])
       );
 
-      // ui.dismiss is purely local.
-      if (action.capability === "ui.dismiss") return dissolve();
+      // ui.dismiss is purely local — and abandons the task (M5).
+      if (action.capability === "ui.dismiss") {
+        remember(false);
+        return dissolve();
+      }
 
       // M3: route real capabilities to the main-process registry (Gmail).
       if (window.railway?.invoke) {
@@ -298,6 +322,7 @@ export default function App() {
         if (res?.ok) {
           if (action.capability === "email.send") {
             flash(res.simulated ? `Simulated send to ${res.to} ✓` : `Sent to ${res.to} ✓`);
+            remember(true); // M5: task done
             dissolve();
           } else {
             flash(res.note || "Done ✓");
@@ -312,6 +337,7 @@ export default function App() {
       switch (action.capability) {
         case "email.send":
           flash(`Sent to ${resolvedArgs.draft?.to ?? "recipient"} ✓`);
+          remember(true);
           dissolve();
           break;
         case "email.openThread":
@@ -321,7 +347,7 @@ export default function App() {
           flash(`Unregistered capability: ${action.capability}`);
       }
     },
-    [data, dissolve, flash]
+    [data, dissolve, flash, remember]
   );
 
   // Keyword fallback: used standalone (no Electron bridge) or when the AI
@@ -331,9 +357,11 @@ export default function App() {
       const t = text.toLowerCase().trim();
       setGenSurface(null);
       setData(initialData); // hardcoded surfaces resolve against the mock data
+      task.current = { request: text, startTs: Date.now(), mode: "keyword", intent: "", edits: 0 };
       // Word boundaries so "mail" doesn't match inside "email" (which would
       // misroute "write the vendor email" to the inbox).
       if (/\b(inbox|threads)\b|\bcheck\b/.test(t)) {
+        task.current.intent = "inbox";
         setSurfaceKey("inbox");
         // M3: even on the keyword path, show the real inbox when connected.
         if (window.railway?.resolveQuery) {
@@ -341,13 +369,16 @@ export default function App() {
             if (r?.ok && Array.isArray(r.items)) setData((d) => ({ ...d, inbox: r.items }));
           });
         }
-      } else if (/\b(email|draft|write|reply|vendor|compose)\b/.test(t)) setSurfaceKey("email_draft");
-      else {
+      } else if (/\b(email|draft|write|reply|vendor|compose)\b/.test(t)) {
+        task.current.intent = "email_draft";
+        setSurfaceKey("email_draft");
+      } else {
         setSurfaceKey(null);
         flash(`"${text}" → the AI would just do this. No surface needed.`);
+        remember(true); // nothing to show — counts as done immediately
       }
     },
-    [flash]
+    [flash, remember]
   );
 
   // M4: clear any pending do-it action and its auto-commit timer.
@@ -370,15 +401,21 @@ export default function App() {
       } else {
         flash(`${p.summary} ✓`); // standalone demo
       }
+      remember(true); // M5: do-it task done
     },
-    [clearPending, flash]
+    [clearPending, flash, remember]
   );
 
   // M4: the one-tap fix — "no, show me the draft" turns the action into an
-  // editable composer instead of sending.
+  // editable composer instead of sending. The task continues (now a surface),
+  // and we note the route was corrected (a memory signal).
   const showDraftInstead = useCallback(
     (p) => {
       clearPending();
+      if (task.current) {
+        task.current.routeCorrected = true;
+        task.current.mode = "surface";
+      }
       const { surface, data: d } = composerFromArgs(p.capability, p.args);
       setData(d);
       setSurfaceKey(null);
@@ -395,6 +432,7 @@ export default function App() {
       clearPending();
       if (!text.trim()) return;
       setQuery("");
+      const startTs = Date.now(); // M5: start the time-to-done clock
 
       if (window.railway?.generate) {
         setBusy(true);
@@ -404,6 +442,7 @@ export default function App() {
             // Silent do-it, but catchable: show a brief "sending…" with a
             // one-tap escape to the draft before it auto-commits.
             const p = { capability: res.capability, args: res.args, summary: res.summary || res.intent };
+            task.current = { request: text, startTs, mode: "do", intent: p.summary, edits: 0 };
             setGenSurface(null);
             setSurfaceKey(null);
             setPending(p);
@@ -411,6 +450,7 @@ export default function App() {
             return;
           }
           if (res?.ok) {
+            task.current = { request: text, startTs, mode: "surface", intent: res.intent || res.surface.intent, edits: 0 };
             setData(res.data || {});
             setSurfaceKey(null);
             setGenSurface(res.surface);

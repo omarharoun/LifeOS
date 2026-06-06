@@ -16,6 +16,9 @@ const path = require("path");
 const { loadConfig } = require("./config");
 const { routeRequest } = require("./generate");
 const seams = require("./seams");
+const { createMemory } = require("./memory");
+
+const memory = createMemory();
 
 // A launcher window needs no GPU. Some Linux/Wayland setups have a flaky
 // GPU sandbox that crashes the GPU process fatally ("GPU process isn't
@@ -81,7 +84,9 @@ app.whenReady().then(() => {
   ipcMain.handle("railway:generate", async (_evt, request) => {
     const cfg = loadConfig();
     try {
-      const res = await routeRequest(request, { apiKey: cfg.apiKey, model: cfg.model });
+      // M5: feed relevant recent history into the prompt for better routing/pre-fill.
+      const history = memory.relevant(request);
+      const res = await routeRequest(request, { apiKey: cfg.apiKey, model: cfg.model, history });
       if (res.ok && res.mode === "surface")
         res.data = await seams.enrichSurfaceData(res.surface, res.data);
       return res;
@@ -89,6 +94,23 @@ app.whenReady().then(() => {
       return { ok: false, error: `generation failed: ${e?.message || e}` };
     }
   });
+
+  // M5: log a completed task (request, route, edits, time-to-done) for memory.
+  ipcMain.handle("railway:remember", async (_evt, record) => {
+    try {
+      const saved = memory.append({ ...record, ts: Date.now() });
+      const s = memory.stats();
+      console.log(
+        `[railway] remembered "${record.request}" (${record.mode}, ${record.edits ?? 0} edits, ` +
+          `${record.timeToDoneMs ?? "?"}ms). median time-to-done: ${s.medianTimeToDoneMs ?? "n/a"}ms over ${s.count}.`
+      );
+      return { ok: true, id: saved.id };
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) };
+    }
+  });
+
+  ipcMain.handle("railway:memoryStats", async () => memory.stats());
 
   // M3 DATA seam: resolve a query source (e.g. "inbox") to real rows.
   ipcMain.handle("railway:resolveQuery", async (_evt, source) => {

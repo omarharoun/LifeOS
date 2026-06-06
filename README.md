@@ -23,6 +23,13 @@ Enter. **Esc** dismisses.
 The app runs with zero configuration — it falls back to a keyword router and
 mock data. Add keys to make it real (below).
 
+What it does: routes each request to either a silent **do-it** (catchable for a
+moment, fixable in one tap) or a **show-me** screen built from the contract's
+three primitives; sends/reads real email when Gmail is connected; and logs every
+task — what you asked, what you picked, edits, and time-to-done — feeding the
+relevant recent history back into the prompt so it predicts and pre-fills better
+over time. All five MVP milestones (M0–M5) are implemented.
+
 ## Make it real
 
 ### AI generation (M2) — optional
@@ -72,6 +79,7 @@ electron/
   config.js             API key / model resolution
   gmail.js              M3: OAuth + inbox listing + RFC822 send
   seams.js              M3: DataContext (resolveQuery) + CapabilityRegistry (invoke)
+  memory.js             M5: local task log + relevance + time-to-done stats
   selftest.js           automated acceptance check (run via npm run selftest)
 build.mjs               esbuild: renderer bundle + contract → Node ESM
 test/                   headless unit tests

@@ -21,4 +21,7 @@ contextBridge.exposeInMainWorld("railway", {
   resolveQuery: (source) => ipcRenderer.invoke("railway:resolveQuery", source),
   invoke: (capability, args) => ipcRenderer.invoke("railway:invoke", capability, args),
   gmailStatus: () => ipcRenderer.invoke("railway:gmailStatus"),
+  // M5: log a completed task; read aggregate stats (time-to-done).
+  remember: (record) => ipcRenderer.invoke("railway:remember", record),
+  memoryStats: () => ipcRenderer.invoke("railway:memoryStats"),
 });

@@ -19,6 +19,11 @@ const path = require("path");
 const { loadConfig } = require("./config");
 const { routeRequest } = require("./generate");
 const seams = require("./seams");
+const { createMemory } = require("./memory");
+const os = require("os");
+
+// Use a throwaway memory file so the test doesn't touch the real log.
+const testMemory = createMemory(path.join(os.tmpdir(), `railway-selftest-mem-${process.pid}.json`));
 
 app.disableHardwareAcceleration();
 
@@ -56,6 +61,11 @@ app.whenReady().then(async () => {
   }));
   ipcMain.handle("railway:invoke", async (_e, name, args) => seams.invokeCapability(name, args));
   ipcMain.handle("railway:gmailStatus", async () => seams.status());
+  ipcMain.handle("railway:remember", async (_e, record) => {
+    testMemory.append({ ...record, ts: Date.now() });
+    return { ok: true };
+  });
+  ipcMain.handle("railway:memoryStats", async () => testMemory.stats());
   ipcMain.on("window:hide", () => {});
 
   const win = new BrowserWindow({
@@ -228,6 +238,13 @@ app.whenReady().then(async () => {
     /running late/i.test(document.querySelector(".toast")?.textContent || "")
   `);
   check('"do it now" commits the action (simulated send)', committed === true);
+
+  // M5: completed tasks are logged to memory (time-to-done recorded).
+  const stats = await win.webContents.executeJavaScript(`window.railway.memoryStats()`);
+  check(
+    "completed tasks are remembered (memory log + time-to-done)",
+    stats && stats.count >= 1 && typeof stats.medianTimeToDoneMs === "number"
+  );
 
   const allOk = checks.every((c) => c.ok);
   console.log(allOk ? "\nSELF-TEST: PASS" : "\nSELF-TEST: FAIL");
