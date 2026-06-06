@@ -17,4 +17,8 @@ contextBridge.exposeInMainWorld("railway", {
   // M2: ask the main process to generate a validated Surface for a request.
   // Returns { ok, surface, data, intent } or { ok:false, error, needKey? }.
   generate: (request) => ipcRenderer.invoke("railway:generate", request),
+  // M3: the two real seams.
+  resolveQuery: (source) => ipcRenderer.invoke("railway:resolveQuery", source),
+  invoke: (capability, args) => ipcRenderer.invoke("railway:invoke", capability, args),
+  gmailStatus: () => ipcRenderer.invoke("railway:gmailStatus"),
 });

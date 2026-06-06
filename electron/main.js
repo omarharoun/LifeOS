@@ -15,6 +15,7 @@ const { app, BrowserWindow, globalShortcut, ipcMain } = require("electron");
 const path = require("path");
 const { loadConfig } = require("./config");
 const { generateSurface } = require("./generate");
+const seams = require("./seams");
 
 // A launcher window needs no GPU. Some Linux/Wayland setups have a flaky
 // GPU sandbox that crashes the GPU process fatally ("GPU process isn't
@@ -76,14 +77,37 @@ app.whenReady().then(() => {
   ipcMain.on("window:hide", () => hideWindow());
 
   // M2: generate a validated Surface for a typed request.
+  // M3: enrich it with real data (e.g. live inbox) before returning.
   ipcMain.handle("railway:generate", async (_evt, request) => {
     const cfg = loadConfig();
     try {
-      return await generateSurface(request, { apiKey: cfg.apiKey, model: cfg.model });
+      const res = await generateSurface(request, { apiKey: cfg.apiKey, model: cfg.model });
+      if (res.ok) res.data = await seams.enrichSurfaceData(res.surface, res.data);
+      return res;
     } catch (e) {
       return { ok: false, error: `generation failed: ${e?.message || e}` };
     }
   });
+
+  // M3 DATA seam: resolve a query source (e.g. "inbox") to real rows.
+  ipcMain.handle("railway:resolveQuery", async (_evt, source) => {
+    try {
+      return { ok: true, items: await seams.resolveQuery(source) };
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) };
+    }
+  });
+
+  // M3 ACTIONS seam: run a named capability (e.g. "email.send") for real.
+  ipcMain.handle("railway:invoke", async (_evt, name, args) => {
+    try {
+      return await seams.invokeCapability(name, args);
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) };
+    }
+  });
+
+  ipcMain.handle("railway:gmailStatus", async () => seams.status());
 
   const cfg = loadConfig();
   console.log(
@@ -91,6 +115,15 @@ app.whenReady().then(() => {
       ? `[railway] AI generation enabled (model: ${cfg.model}).`
       : `[railway] No ANTHROPIC_API_KEY — using built-in keyword router (see railway.config.example.json).`
   );
+  seams.status().then((s) => {
+    console.log(
+      s.authorized
+        ? `[railway] Gmail connected as ${s.email || "(unknown)"} — real inbox + send.`
+        : s.configured
+          ? `[railway] Gmail credentials found but not authorized — run \`npm run gmail-auth\`.`
+          : `[railway] Gmail not configured — using mock inbox + simulated send (see README).`
+    );
+  });
 
   const registered = globalShortcut.register(HOTKEY, toggleWindow);
   if (!registered) {

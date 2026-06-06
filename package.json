@@ -8,7 +8,8 @@
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
     "start": "npm run build && electron .",
-    "test": "npm run build && node test/generate.test.js",
+    "test": "npm run build && node test/generate.test.js && node test/gmail.test.js",
+    "gmail-auth": "node electron/gmail-auth.js",
     "selftest": "npm run build && electron electron/selftest.js"
   },
   "devDependencies": {
@@ -17,6 +18,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.65.0",
+    "googleapis": "^144.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zod": "^4.4.3"

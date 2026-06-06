@@ -7,3 +7,5 @@ renderer/dist/
 electron/gen/
 
 railway.config.json
+gmail.credentials.json
+gmail.token.json

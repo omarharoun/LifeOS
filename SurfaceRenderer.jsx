@@ -237,15 +237,37 @@ export default function App() {
     }, 360);
   }, []);
 
-  // CapabilityRegistry — the action seam. Args arrive resolved.
+  // CapabilityRegistry — the action seam. Args arrive resolved here, then the
+  // real implementation runs in the main process (Gmail) via window.railway.invoke.
   const onAction = useCallback(
-    (action, ctx) => {
+    async (action, ctx) => {
       const resolvedArgs = Object.fromEntries(
         Object.entries(action.args || {}).map(([k, b]) => [
           k,
           b.kind === "ref" ? getPath(data, b.path) : b.kind === "literal" ? b.value : data[b.source],
         ])
       );
+
+      // ui.dismiss is purely local.
+      if (action.capability === "ui.dismiss") return dissolve();
+
+      // M3: route real capabilities to the main-process registry (Gmail).
+      if (window.railway?.invoke) {
+        const res = await window.railway.invoke(action.capability, { ...resolvedArgs, ...ctx });
+        if (res?.ok) {
+          if (action.capability === "email.send") {
+            flash(res.simulated ? `Simulated send to ${res.to} ✓` : `Sent to ${res.to} ✓`);
+            dissolve();
+          } else {
+            flash(res.note || "Done ✓");
+          }
+        } else {
+          flash(res?.error || `Capability failed: ${action.capability}`);
+        }
+        return;
+      }
+
+      // Standalone demo fallback (no Electron bridge): mock the effects.
       switch (action.capability) {
         case "email.send":
           flash(`Sent to ${resolvedArgs.draft?.to ?? "recipient"} ✓`);
@@ -253,9 +275,6 @@ export default function App() {
           break;
         case "email.openThread":
           flash(`Would open: "${ctx.item?.from}" — ${ctx.item?.snippet}`);
-          break;
-        case "ui.dismiss":
-          dissolve();
           break;
         default:
           flash(`Unregistered capability: ${action.capability}`);
@@ -273,8 +292,15 @@ export default function App() {
       setData(initialData); // hardcoded surfaces resolve against the mock data
       // Word boundaries so "mail" doesn't match inside "email" (which would
       // misroute "write the vendor email" to the inbox).
-      if (/\b(inbox|threads)\b|\bcheck\b/.test(t)) setSurfaceKey("inbox");
-      else if (/\b(email|draft|write|reply|vendor|compose)\b/.test(t)) setSurfaceKey("email_draft");
+      if (/\b(inbox|threads)\b|\bcheck\b/.test(t)) {
+        setSurfaceKey("inbox");
+        // M3: even on the keyword path, show the real inbox when connected.
+        if (window.railway?.resolveQuery) {
+          window.railway.resolveQuery("inbox").then((r) => {
+            if (r?.ok && Array.isArray(r.items)) setData((d) => ({ ...d, inbox: r.items }));
+          });
+        }
+      } else if (/\b(email|draft|write|reply|vendor|compose)\b/.test(t)) setSurfaceKey("email_draft");
       else {
         setSurfaceKey(null);
         flash(`"${text}" → the AI would just do this. No surface needed.`);
