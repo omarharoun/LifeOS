@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>railway</title>
+    <!--
+      Railway launcher window — milestone M0.
+      This is just the input bar lifted from SurfaceRenderer.jsx's design,
+      so the window matches the eventual app. M1 swaps this static page for
+      the real React renderer; for now it only needs to: look right, focus
+      on summon, and let you type + dismiss with Esc.
+    -->
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;1,9..144,500&family=JetBrains+Mono:wght@400;500&display=swap');
+      html, body { height: 100%; margin: 0; }
+      body {
+        --paper:#f3efe6; --paper-2:#ebe5d8; --ink:#211d18; --ink-soft:#6b6357;
+        --line:#d8d0bf; --clay:#b14d36; --clay-soft:#c9694f;
+        background:
+          radial-gradient(120% 80% at 50% -10%, #f7f4ec 0%, var(--paper) 55%, var(--paper-2) 100%);
+        font-family:'JetBrains Mono', monospace; color:var(--ink);
+        display:flex; justify-content:center; padding:34px 22px;
+        -webkit-app-region: drag; /* let you drag the frameless window by its background */
+        user-select: none;
+      }
+      .stage { width:100%; max-width:600px; }
+      .brand { display:flex; align-items:baseline; gap:10px; margin-bottom:22px; }
+      .dot { width:8px; height:8px; border-radius:50%; background:var(--clay);
+        align-self:center; box-shadow:0 0 0 4px rgba(177,77,54,.14); }
+      .brand-name { font-family:'Fraunces', serif; font-style:italic; font-size:21px; letter-spacing:.5px; }
+      .brand-sub { font-size:11px; color:var(--ink-soft); letter-spacing:.3px; }
+      .bar { display:flex; align-items:center; gap:10px; background:#fffdf8;
+        border:1px solid var(--line); border-radius:13px; padding:13px 16px;
+        box-shadow:0 1px 0 #fff inset, 0 6px 22px -16px rgba(33,29,24,.5);
+        -webkit-app-region: no-drag; /* the input itself stays clickable/typable */ }
+      .prompt { color:var(--clay); font-weight:500; }
+      .bar-input { flex:1; border:0; outline:0; background:transparent; color:var(--ink);
+        font-family:inherit; font-size:13.5px; user-select:text; }
+      .bar-input::placeholder { color:#a89e8c; }
+      .hint { margin-top:18px; text-align:center; font-size:11px; color:#a89e8c;
+        font-style:italic; font-family:'Fraunces', serif; }
+      .echo { margin-top:14px; min-height:18px; text-align:center; font-size:12px; color:var(--ink-soft); }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <header class="brand">
+        <span class="dot"></span>
+        <span class="brand-name">railway</span>
+        <span class="brand-sub">a surface only when you need one</span>
+      </header>
+
+      <div class="bar">
+        <span class="prompt">&rsaquo;</span>
+        <input
+          id="bar-input"
+          class="bar-input"
+          placeholder="say what you need…  (try: write the vendor email · check inbox)"
+          autocomplete="off"
+          spellcheck="false"
+        />
+      </div>
+
+      <div class="echo" id="echo"></div>
+      <div class="hint">Ctrl+Space to summon · Esc to dismiss · Enter to submit</div>
+    </div>
+
+    <script>
+      const input = document.getElementById("bar-input");
+      const echo = document.getElementById("echo");
+
+      // Focus the box whenever the window is summoned, and clear stale text.
+      function ready() {
+        input.value = "";
+        echo.textContent = "";
+        input.focus();
+      }
+      window.addEventListener("DOMContentLoaded", ready);
+      if (window.railway?.onShown) window.railway.onShown(ready);
+
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          window.railway?.hide();
+        } else if (e.key === "Enter") {
+          const text = input.value.trim();
+          // M0 just proves you can type + submit. Routing/generation is M2+.
+          echo.textContent = text ? `you typed: "${text}"` : "";
+          input.value = "";
+        }
+      });
+    </script>
+  </body>
+</html>
