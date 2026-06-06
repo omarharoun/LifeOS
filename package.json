@@ -1,8 +1,9 @@
 {
   "name": "railway",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "A personal launcher — a surface only when you need one. (MVP M0–M5)",
+  "author": "Omar",
   "main": "electron/main.js",
   "scripts": {
     "build": "node build.mjs",
@@ -11,10 +12,33 @@
     "test": "npm run build && node test/generate.test.js && node test/route.test.js && node test/gmail.test.js && node test/calendar.test.js && node test/memory.test.js && node test/llm.test.js",
     "live": "node test/live.js",
     "gmail-auth": "node electron/gmail-auth.js",
-    "selftest": "npm run build && electron electron/selftest.js"
+    "selftest": "npm run build && electron electron/selftest.js",
+    "dist": "npm run build && electron-builder",
+    "dist:dir": "npm run build && electron-builder --dir"
+  },
+  "build": {
+    "appId": "com.railway.launcher",
+    "productName": "Railway",
+    "files": [
+      "electron/**/*",
+      "renderer/index.html",
+      "renderer/dist/**/*",
+      "package.json",
+      "!**/*.map"
+    ],
+    "extraMetadata": { "main": "electron/main.js" },
+    "directories": { "buildResources": "build", "output": "release" },
+    "linux": {
+      "target": ["AppImage", "tar.gz"],
+      "category": "Utility",
+      "icon": "build/icon.png"
+    },
+    "mac": { "target": ["dmg"], "category": "public.app-category.productivity" },
+    "win": { "target": ["nsis"] }
   },
   "devDependencies": {
     "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
     "esbuild": "^0.24.2"
   },
   "dependencies": {

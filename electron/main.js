@@ -13,6 +13,13 @@
  */
 const { app, BrowserWindow, globalShortcut, ipcMain } = require("electron");
 const path = require("path");
+
+// When packaged, the project root is inside a read-only asar — so config,
+// tokens, and memory live in the OS userData dir. Set this BEFORE requiring
+// modules that read those paths (config/seams/memory via paths.js). In dev
+// (unpackaged) we leave it unset → files resolve to the project root.
+if (app.isPackaged) process.env.RAILWAY_DATA_DIR = app.getPath("userData");
+
 const { loadConfig } = require("./config");
 const { routeRequest } = require("./generate");
 const seams = require("./seams");

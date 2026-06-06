@@ -46,8 +46,10 @@ Default model is `anthropic/claude-sonnet-4.5` (OpenRouter) or
 `claude-sonnet-4-6` (Anthropic); override with `RAILWAY_MODEL`. Verify a live
 key with `npm run live`. Without a key, the built-in keyword router is used.
 
-### Gmail (M3) — optional
-Real inbox + real send via Google OAuth:
+### Google: Gmail + Calendar — optional
+Real inbox + send, and real agenda + event creation, via one Google OAuth
+(shared `electron/google-auth.js` — adding Calendar was just its two seam pieces
+in `electron/calendar.js` + `electron/seams.js`, nothing else changed).
 
 1. In Google Cloud Console: create a project, enable the **Gmail API**, and
    create an OAuth **Desktop app** client.
@@ -59,9 +61,30 @@ Real inbox + real send via Google OAuth:
    This opens your browser, captures the loopback redirect, and writes
    `gmail.token.json`.
 
-Without credentials, "check inbox" shows mock threads and sending is simulated.
-All secret files (`railway.config.json`, `gmail.credentials.json`,
-`gmail.token.json`, `.env`) are gitignored.
+This grants Gmail **and** Calendar scopes. If you previously authorized for
+Gmail only, re-run `npm run gmail-auth` to add Calendar. Then "what's on my
+calendar" lists real events and "add coffee with Alex tomorrow at 10am" creates
+a real event.
+
+Without credentials, "check inbox" / "my agenda" show mock data and
+send/create are simulated. All secret files (`railway.config.json`,
+`gmail.credentials.json`, `gmail.token.json`, `.env`) are gitignored.
+
+## Package as an installable app
+
+```bash
+npm run dist        # builds AppImage + the unpacked app under release/
+```
+
+Outputs to `release/`:
+- **`Railway-<version>.AppImage`** — standard portable Linux app. Needs FUSE 2 at
+  runtime; on Fedora: `sudo dnf install fuse fuse-libs`. Then `chmod +x` and run it.
+- **`release/linux-unpacked/`** — the unpacked app (`./railway`), runs without FUSE.
+
+When packaged, Railway reads/writes its config, token, and memory in the OS
+**userData** dir (`~/.config/Railway` on Linux), not the project folder — so put
+`railway.config.json` and `gmail.credentials.json` there for a packaged install.
+In dev (`npm start`) it uses the project folder as before.
 
 ## Develop
 
@@ -81,10 +104,14 @@ electron/
   preload.js            the renderer↔main bridge (generate / resolveQuery / invoke)
   generate.js           M2: Anthropic call, forced tool output, validate→repair loop
   config.js             API key / model resolution
-  gmail.js              M3: OAuth + inbox listing + RFC822 send
-  seams.js              M3: DataContext (resolveQuery) + CapabilityRegistry (invoke)
+  google-auth.js        shared Google OAuth (Gmail + Calendar)
+  gmail.js              M3: inbox listing + RFC822 send
+  calendar.js           2nd app: agenda listing + event creation
+  seams.js              DataContext (resolveQuery) + CapabilityRegistry (invoke) — the per-app seam
   memory.js             M5: local task log + relevance + time-to-done stats
+  paths.js              where config/token/memory live (project root, or userData when packaged)
   selftest.js           automated acceptance check (run via npm run selftest)
+build/icon.png          app icon used when packaging
 build.mjs               esbuild: renderer bundle + contract → Node ESM
 test/                   headless unit tests
 ```
