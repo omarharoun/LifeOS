@@ -23,6 +23,7 @@
       "electron/**/*",
       "renderer/index.html",
       "renderer/dist/**/*",
+      "build/icon.png",
       "package.json",
       "!**/*.map"
     ],

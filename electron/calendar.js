@@ -36,7 +36,15 @@ function buildEventResource({ summary, description, location, start, end }) {
   const toDT = (v) => {
     if (!v) return null;
     if (typeof v === "object" && (v.dateTime || v.date)) return v;
-    return { dateTime: new Date(v).toISOString() };
+    const d = new Date(v);
+    if (isNaN(d.getTime())) {
+      // Clear, actionable error instead of a cryptic RangeError surfaced as a
+      // generic "create failed". (#4)
+      throw new Error(
+        `Couldn't understand the date/time "${v}". Use e.g. "2026-06-08 10:00" or an ISO time.`
+      );
+    }
+    return { dateTime: d.toISOString() };
   };
   const s = toDT(start);
   let e = toDT(end);

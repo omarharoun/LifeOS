@@ -17,11 +17,25 @@ npm install
 npm start            # builds the renderer + contract, launches Electron
 ```
 
-Press **Ctrl+Space** to summon/dismiss the launcher. Type a request and hit
-Enter. **Esc** dismisses.
+Press **Ctrl+Space** to summon/dismiss the launcher (configurable — see below),
+or use the **tray icon** (Show / Quit). Type a request and hit Enter. **Esc**
+dismisses.
+
+Silent "do-it" actions that are irreversible (sending an email, creating an
+event) never fire on their own — they show a confirm bar and wait for an
+explicit tap, and the window stays open while one is pending. One tap on
+"show me the draft" turns it into an editable screen instead.
 
 The app runs with zero configuration — it falls back to a keyword router and
 mock data. Add keys to make it real (below).
+
+### Settings (optional)
+In `railway.config.json`, env, or `.env`:
+- `RAILWAY_HOTKEY` / `"hotkey"` — global hotkey (Electron accelerator syntax;
+  default `CommandOrControl+Space`). Change it if Ctrl+Space collides with your
+  input-method switcher on Linux.
+- `RAILWAY_NO_HISTORY=1` / `"sendHistory": false` — keep your recent request
+  history local instead of sending it to the model for better pre-fill.
 
 What it does: routes each request to either a silent **do-it** (catchable for a
 moment, fixable in one tap) or a **show-me** screen built from the contract's

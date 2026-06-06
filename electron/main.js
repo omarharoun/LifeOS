@@ -11,7 +11,7 @@
  * hotkey, that gets out of the way the moment it loses focus.
  * ------------------------------------------------------------------
  */
-const { app, BrowserWindow, globalShortcut, ipcMain } = require("electron");
+const { app, BrowserWindow, globalShortcut, ipcMain, Tray, Menu, nativeImage } = require("electron");
 const path = require("path");
 
 // When packaged, the project root is inside a read-only asar — so config,
@@ -32,10 +32,16 @@ const memory = createMemory();
 // usable. Goodbye."); software rendering sidesteps that and is plenty here.
 app.disableHardwareAcceleration();
 
-const HOTKEY = "CommandOrControl+Space";
-
 /** @type {BrowserWindow | null} */
 let win = null;
+/** @type {Tray | null} */
+let tray = null;
+// True while a do-it action is pending in the renderer — we keep the window
+// visible so the catch bar ("show me the draft" / commit) is never hidden.
+let hasPending = false;
+// Set true only when the user really wants to quit (tray Quit / Cmd-Q), so the
+// window's close/blur don't kill a background hotkey app by surprise.
+let quitting = false;
 
 function createWindow() {
   win = new BrowserWindow({
@@ -57,8 +63,12 @@ function createWindow() {
 
   win.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
 
-  // Launcher etiquette: vanish when it loses focus (e.g. you Esc or click away).
-  win.on("blur", () => hideWindow());
+  // Launcher etiquette: vanish when it loses focus (e.g. you Esc or click away)
+  // — UNLESS a do-it action is pending, so its catch bar stays visible until
+  // you commit or cancel it (no silent send behind your back).
+  win.on("blur", () => {
+    if (!hasPending) hideWindow();
+  });
 }
 
 function showWindow() {
@@ -86,18 +96,27 @@ app.whenReady().then(() => {
   // Renderer asks to dismiss (Esc key).
   ipcMain.on("window:hide", () => hideWindow());
 
+  // The renderer tells us when a do-it action is pending so we keep the window
+  // visible (don't hide on blur) until it's committed or cancelled.
+  ipcMain.on("window:pending", (_evt, pending) => {
+    hasPending = Boolean(pending);
+  });
+
   // M2/M4: route the request (do-it vs show-me) and, for surfaces, generate +
   // validate. M3: enrich surfaces with real data (e.g. live inbox).
   ipcMain.handle("railway:generate", async (_evt, request) => {
     const cfg = loadConfig();
     try {
-      // M5: feed relevant recent history into the prompt for better routing/pre-fill.
-      const history = memory.relevant(request);
+      // M5: feed relevant recent history into the prompt for better routing/
+      // pre-fill — unless the user opted out of sharing history with the model.
+      const history = cfg.sendHistory ? memory.relevant(request) : [];
       const res = await routeRequest(request, {
         apiKey: cfg.apiKey,
         model: cfg.model,
         provider: cfg.provider,
         history,
+        // #2: the semantic gate — surfaces may only reference invokable actions.
+        capabilities: seams.KNOWN_CAPABILITIES,
       });
       if (res.ok && res.mode === "surface")
         res.data = await seams.enrichSurfaceData(res.surface, res.data);
@@ -153,23 +172,26 @@ app.whenReady().then(() => {
   seams.status().then((s) => {
     console.log(
       s.authorized
-        ? `[railway] Gmail connected as ${s.email || "(unknown)"} — real inbox + send.`
+        ? `[railway] Google connected as ${s.email || "(unknown)"} — real Gmail + Calendar.`
         : s.configured
-          ? `[railway] Gmail credentials found but not authorized — run \`npm run gmail-auth\`.`
-          : `[railway] Gmail not configured — using mock inbox + simulated send (see README).`
+          ? `[railway] Google credentials found but not authorized — run \`npm run gmail-auth\`.`
+          : `[railway] Google not configured — using mock data + simulated actions (see README).`
     );
   });
 
-  const registered = globalShortcut.register(HOTKEY, toggleWindow);
+  // #3: configurable global hotkey (default Ctrl+Space collides with IME on
+  // some Linux setups — override with RAILWAY_HOTKEY or config.hotkey).
+  const registered = globalShortcut.register(cfg.hotkey, toggleWindow);
   if (!registered) {
-    // Don't die silently — if the OS won't give us the hotkey, say so.
     console.error(
-      `[railway] Failed to register global hotkey "${HOTKEY}". ` +
-        `It may be claimed by the OS or another app.`
+      `[railway] Failed to register global hotkey "${cfg.hotkey}". It may be claimed ` +
+        `by the OS or another app — set a different one via RAILWAY_HOTKEY or railway.config.json.`
     );
   } else {
-    console.log(`[railway] Ready. Press ${HOTKEY} to summon the launcher.`);
+    console.log(`[railway] Ready. Press ${cfg.hotkey} to summon the launcher.`);
   }
+
+  setupTray(cfg.hotkey);
 
   // Show once on first launch so it's obvious the app is alive.
   showWindow();
@@ -178,6 +200,36 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
+
+// #3: a tray icon is the only always-available affordance for a frameless,
+// taskbar-skipped background app — without it, a non-developer can't get the
+// window back or quit. Click toggles; the menu shows/quits.
+function setupTray(hotkey) {
+  try {
+    const iconPath = path.join(__dirname, "..", "build", "icon.png");
+    let image = nativeImage.createFromPath(iconPath);
+    if (!image.isEmpty()) image = image.resize({ width: 18, height: 18 });
+    tray = new Tray(image.isEmpty() ? nativeImage.createEmpty() : image);
+    tray.setToolTip("Railway — a surface only when you need one");
+    tray.setContextMenu(
+      Menu.buildFromTemplate([
+        { label: `Show (${hotkey})`, click: () => showWindow() },
+        { type: "separator" },
+        {
+          label: "Quit Railway",
+          click: () => {
+            quitting = true;
+            app.quit();
+          },
+        },
+      ])
+    );
+    tray.on("click", () => toggleWindow());
+  } catch (e) {
+    // No system tray (some Linux desktops) — not fatal; hotkey still works.
+    console.warn(`[railway] Tray unavailable: ${e?.message || e}`);
+  }
+}
 
 // Keep the app alive in the tray-less background even with no windows shown:
 // the whole point is that the hotkey can summon it later. So we do NOT quit

@@ -14,6 +14,8 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("railway", {
   onShown: (cb) => ipcRenderer.on("window:shown", () => cb()),
   hide: () => ipcRenderer.send("window:hide"),
+  // #1: tell main a do-it is pending so it keeps the window visible.
+  setPending: (pending) => ipcRenderer.send("window:pending", pending),
   // M2: ask the main process to generate a validated Surface for a request.
   // Returns { ok, surface, data, intent } or { ok:false, error, needKey? }.
   generate: (request) => ipcRenderer.invoke("railway:generate", request),

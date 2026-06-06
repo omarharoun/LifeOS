@@ -72,7 +72,17 @@ function loadConfig() {
   const model =
     process.env.RAILWAY_MODEL || env.RAILWAY_MODEL || json.model || DEFAULT_MODEL[provider];
 
-  return { apiKey, provider, model, hasKey: Boolean(apiKey) };
+  // #3: configurable global hotkey (Electron accelerator syntax).
+  const hotkey =
+    process.env.RAILWAY_HOTKEY || env.RAILWAY_HOTKEY || json.hotkey || "CommandOrControl+Space";
+
+  // Privacy: whether to send recent request history to the model for better
+  // pre-fill. On by default; set RAILWAY_NO_HISTORY=1 or "sendHistory": false
+  // to keep your past requests local.
+  const noHistoryEnv = process.env.RAILWAY_NO_HISTORY || env.RAILWAY_NO_HISTORY;
+  const sendHistory = noHistoryEnv ? false : json.sendHistory !== false;
+
+  return { apiKey, provider, model, hotkey, sendHistory, hasKey: Boolean(apiKey) };
 }
 
 module.exports = { loadConfig };

@@ -111,11 +111,14 @@ function doSilentlyTool() {
  *   {ok:true, mode:"surface", surface, data, intent} |
  *   {ok:false, error, needKey?:boolean}>}
  */
-async function routeRequest(requestText, { apiKey, model, provider, history = [], client } = {}) {
+async function routeRequest(
+  requestText,
+  { apiKey, model, provider, history = [], client, capabilities = [] } = {}
+) {
   if (!apiKey && !client)
     return { ok: false, needKey: true, error: "No API key configured." };
 
-  const { validateSurface, surfaceJsonSchema } = await contract();
+  const { validateSurface, surfaceJsonSchema, checkCapabilities } = await contract();
   const emitTool = buildToolSchema(surfaceJsonSchema());
   client = client || makeClient({ apiKey, provider });
 
@@ -144,16 +147,24 @@ async function routeRequest(requestText, { apiKey, model, provider, history = []
 
   if (toolUse.name === "do_silently") {
     const { capability, args, summary } = toolUse.input || {};
+    // Don't set up a do-it we can't actually perform.
+    if (capabilities.length && !capabilities.includes(capability))
+      return { ok: false, error: `Routed to an unavailable capability: ${capability}.` };
     return { ok: true, mode: "do", capability, args: args || {}, summary: summary || "", intent: summary || requestText };
   }
 
-  // emit_surface chosen — validate; if invalid, fall back to the repair loop.
+  // emit_surface chosen — validate shape AND capabilities; if either fails,
+  // fall back to the repair loop (which re-checks both).
   const { surface, data } = toolUse.input || {};
   const valid = validateSurface(surface);
-  if (valid.ok)
+  const capsOk =
+    valid.ok &&
+    (!capabilities.length ||
+      checkCapabilities(valid.surface, { has: (n) => capabilities.includes(n) }).length === 0);
+  if (valid.ok && capsOk)
     return { ok: true, mode: "surface", surface: valid.surface, data: data || {}, intent: valid.surface.intent };
 
-  const repaired = await generateSurface(requestText, { apiKey, model, provider, history, client });
+  const repaired = await generateSurface(requestText, { apiKey, model, provider, history, client, capabilities });
   if (repaired.ok) return { ok: true, mode: "surface", ...repaired };
   return repaired;
 }
@@ -186,11 +197,27 @@ function buildToolSchema(surfaceJsonSchema) {
  * Generate a validated Surface for a request.
  * @returns {Promise<{ok:true, surface, data, intent} | {ok:false, error, needKey?:boolean}>}
  */
-async function generateSurface(requestText, { apiKey, model, provider, history = [], client } = {}) {
+async function generateSurface(
+  requestText,
+  { apiKey, model, provider, history = [], client, capabilities = [] } = {}
+) {
   if (!apiKey && !client)
     return { ok: false, needKey: true, error: "No API key configured." };
 
-  const { validateSurface, errorsForRepair, surfaceJsonSchema } = await contract();
+  const { validateSurface, errorsForRepair, surfaceJsonSchema, checkCapabilities } = await contract();
+
+  // Semantic gate: every capability a surface references must be registered.
+  // Returns a repair message naming what's missing, or null if all are present.
+  const capabilityError = (surface) => {
+    if (!capabilities.length) return null;
+    const registry = { has: (n) => capabilities.includes(n) };
+    const missing = checkCapabilities(surface, registry);
+    if (!missing.length) return null;
+    return (
+      `These capabilities are not available: ${missing.join(", ")}. ` +
+      `Use only registered capabilities: ${capabilities.join(", ")}. Re-emit a valid Surface.`
+    );
+  };
 
   const tool = buildToolSchema(surfaceJsonSchema());
   // `client` is injectable for tests; real runs build the provider client.
@@ -232,11 +259,16 @@ async function generateSurface(requestText, { apiKey, model, provider, history =
     const { surface, data } = toolUse.input || {};
     const result = validateSurface(surface);
     if (result.ok) {
-      return { ok: true, surface: result.surface, data: data || {}, intent: result.surface.intent };
+      // Shape is valid — now the semantic gate: are all its actions invokable?
+      const capErr = capabilityError(result.surface);
+      if (!capErr) {
+        return { ok: true, surface: result.surface, data: data || {}, intent: result.surface.intent };
+      }
+      lastError = capErr;
+    } else {
+      // Repair: show the model exactly what was wrong and let it try again.
+      lastError = errorsForRepair(result.errors);
     }
-
-    // Repair: show the model exactly what was wrong and let it try again.
-    lastError = errorsForRepair(result.errors);
     messages.push({ role: "assistant", content: resp.content });
     messages.push({
       role: "user",

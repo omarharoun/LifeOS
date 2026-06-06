@@ -112,7 +112,34 @@ function fakeClient(responses) {
     ok("no API key returns needKey (graceful fallback signal)");
   }
 
-  console.log(`\nM2 GENERATION TESTS: PASS (${passed}/4)`);
+  // 5) Capability gate: a shape-valid surface referencing an UNREGISTERED
+  //    capability triggers repair (it can't render an action we can't invoke).
+  {
+    const unregistered = {
+      id: "s",
+      intent: "archive it",
+      ephemeral: true,
+      blocks: [{ type: "confirm", id: "c", summary: "Archive?", onConfirm: { capability: "email.archive", args: {} } }],
+    };
+    const client = fakeClient([
+      toolUseResponse(unregistered, {}), // shape-valid, but email.archive isn't registered
+      toolUseResponse(validSurface, { draft: { body: "ok" } }),
+    ]);
+    const res = await generateSurface("archive it", {
+      client,
+      model: "x",
+      capabilities: ["email.send", "ui.dismiss"],
+    });
+    assert.equal(res.ok, true, "should repair to a surface with only registered capabilities");
+    assert.equal(client.calls.length, 2, "one repair round");
+    const repair = client.calls[1].messages.find(
+      (m) => Array.isArray(m.content) && m.content.some((c) => c.type === "tool_result")
+    );
+    assert.match(repair.content[0].content, /email\.archive|not available/i);
+    ok("unregistered capability triggers the semantic gate → repair");
+  }
+
+  console.log(`\nM2 GENERATION TESTS: PASS (${passed}/5)`);
 })().catch((e) => {
   console.error("\nM2 GENERATION TESTS: FAIL");
   console.error(e);

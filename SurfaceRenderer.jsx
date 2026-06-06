@@ -101,8 +101,16 @@ const SURFACES = {
   },
 };
 
-// How long a silent do-it waits (catchable) before it actually commits.
+// How long an auto-committable do-it waits (catchable) before it commits.
 const AUTOSEND_MS = 4500;
+
+// Capabilities safe to auto-commit on a timer. IRREVERSIBLE actions (sending
+// an email, creating a calendar event) are deliberately NOT here: they require
+// an explicit tap, so nothing irreversible happens on its own — especially
+// since the window can lose focus. Add a capability here only once it's
+// genuinely undoable in-app. (#1)
+const AUTO_COMMIT_CAPABILITIES = new Set();
+const isAutoCommit = (capability) => AUTO_COMMIT_CAPABILITIES.has(capability);
 
 /* ---------- M4: build a review surface from a do-it action ---------- */
 // When the router chose "do it silently" but the user taps "show me the draft",
@@ -125,7 +133,9 @@ function composerFromArgs(capability, args = {}) {
           id: "cmp_review",
           fields: [
             { key: "summary", label: "Event", binding: { kind: "ref", path: "draft.summary" } },
-            { key: "start", label: "When", binding: { kind: "ref", path: "draft.start" } },
+            // Keep the time structured: prefill the model's ISO value and hint
+            // the format so an edit stays parseable (#4).
+            { key: "start", label: "When (e.g. 2026-06-08 10:00)", binding: { kind: "ref", path: "draft.start" } },
             { key: "location", label: "Where", binding: { kind: "ref", path: "draft.location" } },
           ],
         },
@@ -179,7 +189,10 @@ function Composer({ node, data, onWrite }) {
     <div className="prim">
       {node.fields.map((f, i) => {
         const value = data && f.binding.kind === "ref" ? getPath(data, f.binding.path) ?? "" : "";
-        const write = (v) => f.binding.kind === "ref" && onWrite(f.binding.path, v);
+        // countAsEdit distinguishes the user typing a fix (a real "edit" signal)
+        // from applying an AI rephrase chip, which shouldn't muddy the metric.
+        const write = (v, countAsEdit = true) =>
+          f.binding.kind === "ref" && onWrite(f.binding.path, v, countAsEdit);
         const suggestions =
           f.suggestions && f.suggestions.kind === "ref" ? getPath(data, f.suggestions.path) ?? [] : [];
         return (
@@ -193,7 +206,7 @@ function Composer({ node, data, onWrite }) {
             {suggestions.length > 0 && (
               <div className="chips">
                 {suggestions.map((s, j) => (
-                  <button className="chip" key={j} title={s} onClick={() => write(s)}>
+                  <button className="chip" key={j} title={s} onClick={() => write(s, false)}>
                     ↻ rephrase {j + 1}
                   </button>
                 ))}
@@ -228,6 +241,10 @@ function ListView({ node, data, onAction }) {
   );
 }
 
+// Verb for the confirm button, driven by the action rather than hardcoded (#5).
+const CONFIRM_LABELS = { "email.send": "Send", "calendar.createEvent": "Add" };
+const confirmLabel = (action) => CONFIRM_LABELS[action?.capability] || "Confirm";
+
 function Confirm({ node, data, onAction }) {
   const preview = node.preview && node.preview.kind === "ref" ? getPath(data, node.preview.path) : null;
   return (
@@ -245,7 +262,9 @@ function Confirm({ node, data, onAction }) {
           {node.onCancel && (
             <button className="btn ghost" onClick={() => onAction(node.onCancel, {})}>Cancel</button>
           )}
-          <button className="btn solid" onClick={() => onAction(node.onConfirm, {})}>Send</button>
+          <button className="btn solid" onClick={() => onAction(node.onConfirm, {})}>
+            {confirmLabel(node.onConfirm)}
+          </button>
         </span>
       </div>
     </div>
@@ -298,8 +317,10 @@ export default function App() {
     flash._t = window.setTimeout(() => setToast(null), 2600);
   }, []);
 
-  const onWrite = useCallback((path, value) => {
-    if (task.current) task.current.edits += 1; // M5: count edits as a quality signal
+  const onWrite = useCallback((path, value, countAsEdit = true) => {
+    // M5: count manual edits as a quality signal — but not AI rephrase-chip
+    // applications, which would otherwise inflate the "edits" metric.
+    if (countAsEdit && task.current) task.current.edits += 1;
     setData((d) => setPath(d, path, value));
   }, []);
 
@@ -415,13 +436,15 @@ export default function App() {
     [flash, remember]
   );
 
-  // M4: clear any pending do-it action and its auto-commit timer.
+  // M4: clear any pending do-it action and its auto-commit timer. Also tell the
+  // main process so it may resume hiding the window on blur (#1).
   const clearPending = useCallback(() => {
     if (pendingTimer.current) {
       window.clearTimeout(pendingTimer.current);
       pendingTimer.current = null;
     }
     setPending(null);
+    window.railway?.setPending?.(false);
   }, []);
 
   // M4: actually run a routed do-it action (the silent path) for real.
@@ -473,14 +496,23 @@ export default function App() {
         try {
           const res = await window.railway.generate(text);
           if (res?.ok && res.mode === "do") {
-            // Silent do-it, but catchable: show a brief "sending…" with a
-            // one-tap escape to the draft before it auto-commits.
-            const p = { capability: res.capability, args: res.args, summary: res.summary || res.intent };
+            // Do-it route. Irreversible actions wait for an explicit tap;
+            // only opt-in reversible ones auto-commit on the timer (#1).
+            const p = {
+              capability: res.capability,
+              args: res.args,
+              summary: res.summary || res.intent,
+              autoCommit: isAutoCommit(res.capability),
+            };
             task.current = { request: text, startTs, mode: "do", intent: p.summary, edits: 0 };
             setGenSurface(null);
             setSurfaceKey(null);
             setPending(p);
-            pendingTimer.current = window.setTimeout(() => commitPending(p), AUTOSEND_MS);
+            // Keep the window from hiding behind your back while this is pending.
+            window.railway?.setPending?.(true);
+            if (p.autoCommit) {
+              pendingTimer.current = window.setTimeout(() => commitPending(p), AUTOSEND_MS);
+            }
             return;
           }
           if (res?.ok) {
@@ -530,17 +562,21 @@ export default function App() {
           {busy ? (
             <div className="empty">thinking…</div>
           ) : pending ? (
-            // M4: the do-it path — done silently, but catchable for a moment.
+            // M4: the do-it path. Auto-committable actions show a draining
+            // timer; irreversible ones wait for an explicit tap (#1).
             <div className="pending">
-              <span className="pending-bar" />
+              {pending.autoCommit && <span className="pending-bar" />}
               <div className="pending-row">
-                <span className="pending-summary">{pending.summary} — doing this now…</span>
+                <span className="pending-summary">
+                  {pending.summary}
+                  {pending.autoCommit ? " — doing this now…" : " — ready when you are"}
+                </span>
                 <span className="pending-actions">
                   <button className="btn ghost" onClick={() => showDraftInstead(pending)}>
                     no — show me the draft
                   </button>
                   <button className="btn solid" onClick={() => commitPending(pending)}>
-                    do it now
+                    {pending.autoCommit ? "do it now" : "do it"}
                   </button>
                 </span>
               </div>

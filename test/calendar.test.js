@@ -42,6 +42,16 @@ const ok = (name) => {
     ok("buildEventResource normalizes start/end and defaults");
   }
 
+  // buildEventResource gives a clear error on an unparseable date (#4),
+  // rather than a cryptic RangeError surfaced as a generic failure.
+  {
+    assert.throws(
+      () => calendar.buildEventResource({ summary: "x", start: "tomorrow at noon-ish" }),
+      /Couldn't understand the date\/time/
+    );
+    ok("buildEventResource throws a clear error on an unparseable date");
+  }
+
   // DATA seam: agenda falls back to mock when unauthorized, with expected fields.
   {
     const items = await seams.resolveQuery("agenda");
@@ -71,7 +81,7 @@ const ok = (name) => {
     ok("invokeCapability('calendar.createEvent') simulates + validates inputs");
   }
 
-  console.log(`\nCALENDAR TESTS: PASS (${passed}/4)`);
+  console.log(`\nCALENDAR TESTS: PASS (${passed}/5)`);
 })().catch((e) => {
   console.error("\nCALENDAR TESTS: FAIL");
   console.error(e);

@@ -213,7 +213,23 @@ app.whenReady().then(async () => {
   const pendingShown = await waitFor(
     `!!document.querySelector(".pending") && !document.querySelector(".surface")`
   );
-  check('do-it route shows the catchable "doing this now" bar (no screen)', pendingShown === true);
+  check("do-it route shows the catchable confirm bar (no screen)", pendingShown === true);
+
+  // #1: an irreversible action (email.send) must NOT auto-fire on a timer —
+  // it should still be pending with no send after a wait, until an explicit tap.
+  await sleep(1200);
+  const stillPending = await win.webContents.executeJavaScript(`
+    (() => ({
+      pending: !!document.querySelector(".pending"),
+      noDrainBar: !document.querySelector(".pending-bar"),
+      // this action ("running late") must NOT have fired (its commit toast says so)
+      notFired: !/running late/i.test(document.querySelector(".toast")?.textContent || ""),
+    }))()
+  `);
+  check(
+    "#1 irreversible do-it does NOT auto-send (no timer; awaits explicit tap)",
+    stillPending.pending && stillPending.noDrainBar && stillPending.notFired
+  );
 
   // M4: the one-tap fix — "no, show me the draft" opens an editable composer.
   await win.webContents.executeJavaScript(`document.querySelector(".pending .btn.ghost")?.click()`);
@@ -224,7 +240,7 @@ app.whenReady().then(async () => {
   `);
   check('"show me the draft" turns the do-it into an editable composer', draftShown === true);
 
-  // M4: letting it commit (tap "do it now") fires the action through the registry.
+  // M4: an explicit tap commits the action through the registry.
   await win.webContents.executeJavaScript(submit("tell Sarah I'm running late"));
   await waitFor(`!!document.querySelector(".pending .btn.solid")`);
   await win.webContents.executeJavaScript(`document.querySelector(".pending .btn.solid")?.click()`);
@@ -232,7 +248,7 @@ app.whenReady().then(async () => {
     !document.querySelector(".pending") &&
     /running late/i.test(document.querySelector(".toast")?.textContent || "")
   `);
-  check('"do it now" commits the action (simulated send)', committed === true);
+  check("explicit tap commits the do-it action (simulated send)", committed === true);
 
   // M5: completed tasks are logged to memory (time-to-done recorded).
   const stats = await win.webContents.executeJavaScript(`window.railway.memoryStats()`);

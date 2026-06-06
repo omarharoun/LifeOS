@@ -14,6 +14,11 @@ const gmail = require("./gmail");
 const calendar = require("./calendar");
 const auth = require("./google-auth");
 
+// The capabilities the registry can actually invoke. Used as the semantic gate
+// (checkCapabilities) before a surface is allowed to render, so the model can't
+// emit an action we can't perform. "ui.dismiss" is handled in the renderer.
+const KNOWN_CAPABILITIES = ["email.send", "email.openThread", "calendar.createEvent", "ui.dismiss"];
+
 // Mock data used until Google is connected (mirrors SurfaceRenderer's demo).
 const MOCK_INBOX = [
   { id: "t1", from: "Sarah Chen", snippet: "Can we move the 3pm?", date: "9:02" },
@@ -122,4 +127,12 @@ async function status() {
   return { configured, authorized, email };
 }
 
-module.exports = { resolveQuery, enrichSurfaceData, invokeCapability, status, MOCK_INBOX, MOCK_AGENDA };
+module.exports = {
+  resolveQuery,
+  enrichSurfaceData,
+  invokeCapability,
+  status,
+  KNOWN_CAPABILITIES,
+  MOCK_INBOX,
+  MOCK_AGENDA,
+};
