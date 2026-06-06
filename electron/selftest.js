@@ -16,8 +16,6 @@
  */
 const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
-const { loadConfig } = require("./config");
-const { routeRequest } = require("./generate");
 const seams = require("./seams");
 const { createMemory } = require("./memory");
 const os = require("os");
@@ -36,9 +34,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 app.whenReady().then(async () => {
   // Mirror main.js's generate handler so the preload→IPC round-trip is real.
+  // The selftest runs hermetically (no network) for deterministic results:
+  // script a do-it route for a known phrase, and signal needKey otherwise so
+  // the renderer falls back to its keyword router. Live generation is covered
+  // separately by `npm run live`.
   ipcMain.handle("railway:generate", async (_e, request) => {
-    // M4: with no live key we can't reach the model, so script a do-it route
-    // for a known phrase to exercise the renderer's do-it UI deterministically.
     if (/tell sarah/i.test(request)) {
       return {
         ok: true,
@@ -49,11 +49,7 @@ app.whenReady().then(async () => {
         intent: "Tell Sarah you're running late",
       };
     }
-    const cfg = loadConfig();
-    const res = await routeRequest(request, { apiKey: cfg.apiKey, model: cfg.model });
-    if (res.ok && res.mode === "surface")
-      res.data = await seams.enrichSurfaceData(res.surface, res.data);
-    return res;
+    return { ok: false, needKey: true, error: "selftest is hermetic (no live API)" };
   });
   ipcMain.handle("railway:resolveQuery", async (_e, source) => ({
     ok: true,
@@ -163,19 +159,14 @@ app.whenReady().then(async () => {
   `);
   check("editing a composer field updates it", editOk === true);
 
-  // M2: the generate IPC round-trips through the real main process. Without a
-  // key it must return the graceful needKey signal (renderer then falls back).
+  // M2: the generate IPC round-trips through the real main process and signals
+  // needKey here (hermetic), so the renderer falls back to its keyword router.
   const genResult = await win.webContents.executeJavaScript(
     `window.railway.generate("reply to sarah")`
   );
-  const genOk = process.env.ANTHROPIC_API_KEY
-    ? genResult?.ok === true && genResult?.surface?.blocks?.length >= 1
-    : genResult?.ok === false && genResult?.needKey === true;
   check(
-    process.env.ANTHROPIC_API_KEY
-      ? "generate IPC produces a valid Surface (live key)"
-      : "generate IPC round-trips and signals needKey (no key → fallback)",
-    genOk === true
+    "generate IPC round-trips and signals needKey (hermetic → fallback)",
+    genResult?.ok === false && genResult?.needKey === true
   );
 
   // M3: DATA seam round-trips (mock inbox when Gmail unauthorized).

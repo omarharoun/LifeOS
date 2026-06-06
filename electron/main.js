@@ -86,7 +86,12 @@ app.whenReady().then(() => {
     try {
       // M5: feed relevant recent history into the prompt for better routing/pre-fill.
       const history = memory.relevant(request);
-      const res = await routeRequest(request, { apiKey: cfg.apiKey, model: cfg.model, history });
+      const res = await routeRequest(request, {
+        apiKey: cfg.apiKey,
+        model: cfg.model,
+        provider: cfg.provider,
+        history,
+      });
       if (res.ok && res.mode === "surface")
         res.data = await seams.enrichSurfaceData(res.surface, res.data);
       return res;
@@ -135,8 +140,8 @@ app.whenReady().then(() => {
   const cfg = loadConfig();
   console.log(
     cfg.hasKey
-      ? `[railway] AI generation enabled (model: ${cfg.model}).`
-      : `[railway] No ANTHROPIC_API_KEY — using built-in keyword router (see railway.config.example.json).`
+      ? `[railway] AI generation enabled (${cfg.provider}, model: ${cfg.model}).`
+      : `[railway] No API key — using built-in keyword router (see railway.config.example.json).`
   );
   seams.status().then((s) => {
     console.log(

@@ -39,16 +39,42 @@ function readDotEnv() {
   return out;
 }
 
+// Infer the provider from the key shape (override with config.provider /
+// RAILWAY_PROVIDER). OpenRouter keys start with "sk-or-".
+function inferProvider(apiKey, explicit) {
+  if (explicit) return explicit;
+  if (apiKey && apiKey.startsWith("sk-or-")) return "openrouter";
+  return "anthropic";
+}
+
+const DEFAULT_MODEL = {
+  anthropic: "claude-sonnet-4-6",
+  openrouter: "anthropic/claude-sonnet-4.5",
+};
+
 function loadConfig() {
   const json = readJsonConfig();
   const env = readDotEnv();
 
   const apiKey =
-    process.env.ANTHROPIC_API_KEY || env.ANTHROPIC_API_KEY || json.anthropicApiKey || null;
-  const model =
-    process.env.RAILWAY_MODEL || env.RAILWAY_MODEL || json.model || "claude-sonnet-4-6";
+    process.env.ANTHROPIC_API_KEY ||
+    process.env.OPENROUTER_API_KEY ||
+    env.ANTHROPIC_API_KEY ||
+    env.OPENROUTER_API_KEY ||
+    json.apiKey ||
+    json.anthropicApiKey ||
+    json.openrouterApiKey ||
+    null;
 
-  return { apiKey, model, hasKey: Boolean(apiKey) };
+  const provider = inferProvider(
+    apiKey,
+    process.env.RAILWAY_PROVIDER || env.RAILWAY_PROVIDER || json.provider
+  );
+
+  const model =
+    process.env.RAILWAY_MODEL || env.RAILWAY_MODEL || json.model || DEFAULT_MODEL[provider];
+
+  return { apiKey, provider, model, hasKey: Boolean(apiKey) };
 }
 
 module.exports = { loadConfig };

@@ -33,14 +33,18 @@ over time. All five MVP milestones (M0–M5) are implemented.
 ## Make it real
 
 ### AI generation (M2) — optional
-Generation uses the Anthropic API (a **separate** key from any Claude Code
-subscription). Provide it any one way:
+Generation works with **OpenRouter** or the **Anthropic API** (a key separate
+from any Claude Code subscription). The provider is inferred from the key
+prefix: `sk-or-...` → OpenRouter, `sk-ant-...` → Anthropic. Provide a key any
+one way:
 
-- `ANTHROPIC_API_KEY=...` in the environment or a `.env` file, or
+- `OPENROUTER_API_KEY=...` / `ANTHROPIC_API_KEY=...` in the environment or a
+  `.env` file, or
 - copy `railway.config.example.json` → `railway.config.json` and fill it in.
 
-Optionally set `RAILWAY_MODEL` (default `claude-sonnet-4-6`). Without a key, the
-built-in keyword router is used instead.
+Default model is `anthropic/claude-sonnet-4.5` (OpenRouter) or
+`claude-sonnet-4-6` (Anthropic); override with `RAILWAY_MODEL`. Verify a live
+key with `npm run live`. Without a key, the built-in keyword router is used.
 
 ### Gmail (M3) — optional
 Real inbox + real send via Google OAuth:

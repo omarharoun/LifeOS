@@ -1,5 +1,7 @@
 {
-  "_comment": "Copy this to railway.config.json (gitignored) and fill in your key. Or set ANTHROPIC_API_KEY / RAILWAY_MODEL in the environment or a .env file. Without a key, Railway runs with the built-in keyword router instead of AI generation.",
-  "anthropicApiKey": "sk-ant-...",
-  "model": "claude-sonnet-4-6"
+  "_comment": "Copy this to railway.config.json (gitignored) and fill in a key. Provider is inferred from the key prefix: sk-or-... → OpenRouter, sk-ant-... → Anthropic. You can also set ANTHROPIC_API_KEY / OPENROUTER_API_KEY / RAILWAY_MODEL / RAILWAY_PROVIDER in the environment or a .env file. Without a key, Railway runs with the built-in keyword router instead of AI generation.",
+  "_anthropic_example": { "provider": "anthropic", "apiKey": "sk-ant-...", "model": "claude-sonnet-4-6" },
+  "provider": "openrouter",
+  "apiKey": "sk-or-v1-...",
+  "model": "anthropic/claude-sonnet-4.5"
 }

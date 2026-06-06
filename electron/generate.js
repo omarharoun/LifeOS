@@ -14,7 +14,7 @@
  * ------------------------------------------------------------------
  */
 const path = require("path");
-const Anthropic = require("@anthropic-ai/sdk");
+const { makeClient } = require("./llm");
 
 const MAX_REPAIR_ATTEMPTS = 3;
 
@@ -101,13 +101,13 @@ function doSilentlyTool() {
  *   {ok:true, mode:"surface", surface, data, intent} |
  *   {ok:false, error, needKey?:boolean}>}
  */
-async function routeRequest(requestText, { apiKey, model, history = [], client } = {}) {
+async function routeRequest(requestText, { apiKey, model, provider, history = [], client } = {}) {
   if (!apiKey && !client)
-    return { ok: false, needKey: true, error: "No Anthropic API key configured." };
+    return { ok: false, needKey: true, error: "No API key configured." };
 
   const { validateSurface, surfaceJsonSchema } = await contract();
   const emitTool = buildToolSchema(surfaceJsonSchema());
-  client = client || new Anthropic({ apiKey });
+  client = client || makeClient({ apiKey, provider });
 
   const historyBlock =
     history.length > 0
@@ -143,7 +143,7 @@ async function routeRequest(requestText, { apiKey, model, history = [], client }
   if (valid.ok)
     return { ok: true, mode: "surface", surface: valid.surface, data: data || {}, intent: valid.surface.intent };
 
-  const repaired = await generateSurface(requestText, { apiKey, model, history, client });
+  const repaired = await generateSurface(requestText, { apiKey, model, provider, history, client });
   if (repaired.ok) return { ok: true, mode: "surface", ...repaired };
   return repaired;
 }
@@ -176,15 +176,15 @@ function buildToolSchema(surfaceJsonSchema) {
  * Generate a validated Surface for a request.
  * @returns {Promise<{ok:true, surface, data, intent} | {ok:false, error, needKey?:boolean}>}
  */
-async function generateSurface(requestText, { apiKey, model, history = [], client } = {}) {
+async function generateSurface(requestText, { apiKey, model, provider, history = [], client } = {}) {
   if (!apiKey && !client)
-    return { ok: false, needKey: true, error: "No Anthropic API key configured." };
+    return { ok: false, needKey: true, error: "No API key configured." };
 
   const { validateSurface, errorsForRepair, surfaceJsonSchema } = await contract();
 
   const tool = buildToolSchema(surfaceJsonSchema());
-  // `client` is injectable for tests; real runs construct the SDK client.
-  client = client || new Anthropic({ apiKey });
+  // `client` is injectable for tests; real runs build the provider client.
+  client = client || makeClient({ apiKey, provider });
 
   // Optional memory (M5): a compact preamble of recent, relevant requests.
   const historyBlock =
