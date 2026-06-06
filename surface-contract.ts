@@ -144,6 +144,15 @@ export function validateSurface(input: unknown): ValidationResult {
   };
 }
 
+/**
+ * JSON Schema for a Surface, derived from the same zod schema used to
+ * validate. Used to constrain the model's tool output so what it emits and
+ * what we accept are guaranteed to be the same shape.
+ */
+export function surfaceJsonSchema(): Record<string, unknown> {
+  return z.toJSONSchema(Surface) as Record<string, unknown>;
+}
+
 /** Compact, model-friendly description of what was wrong. */
 export function errorsForRepair(errors: ValidationError[]): string {
   return [
@@ -268,4 +277,14 @@ function demo() {
   );
 }
 
-demo();
+// Run the self-check only when this file is executed directly
+// (e.g. `npx tsx surface-contract.ts`), not when imported as a library by
+// the app — importing it should have no side effects, just exports.
+import { pathToFileURL } from "node:url";
+if (
+  typeof process !== "undefined" &&
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  demo();
+}

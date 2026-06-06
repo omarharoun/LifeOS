@@ -1,0 +1,5 @@
+{
+  "_comment": "Copy this to railway.config.json (gitignored) and fill in your key. Or set ANTHROPIC_API_KEY / RAILWAY_MODEL in the environment or a .env file. Without a key, Railway runs with the built-in keyword router instead of AI generation.",
+  "anthropicApiKey": "sk-ant-...",
+  "model": "claude-sonnet-4-6"
+}

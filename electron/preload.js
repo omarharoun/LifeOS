@@ -14,4 +14,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("railway", {
   onShown: (cb) => ipcRenderer.on("window:shown", () => cb()),
   hide: () => ipcRenderer.send("window:hide"),
+  // M2: ask the main process to generate a validated Surface for a request.
+  // Returns { ok, surface, data, intent } or { ok:false, error, needKey? }.
+  generate: (request) => ipcRenderer.invoke("railway:generate", request),
 });

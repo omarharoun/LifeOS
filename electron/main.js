@@ -13,6 +13,8 @@
  */
 const { app, BrowserWindow, globalShortcut, ipcMain } = require("electron");
 const path = require("path");
+const { loadConfig } = require("./config");
+const { generateSurface } = require("./generate");
 
 // A launcher window needs no GPU. Some Linux/Wayland setups have a flaky
 // GPU sandbox that crashes the GPU process fatally ("GPU process isn't
@@ -72,6 +74,23 @@ app.whenReady().then(() => {
 
   // Renderer asks to dismiss (Esc key).
   ipcMain.on("window:hide", () => hideWindow());
+
+  // M2: generate a validated Surface for a typed request.
+  ipcMain.handle("railway:generate", async (_evt, request) => {
+    const cfg = loadConfig();
+    try {
+      return await generateSurface(request, { apiKey: cfg.apiKey, model: cfg.model });
+    } catch (e) {
+      return { ok: false, error: `generation failed: ${e?.message || e}` };
+    }
+  });
+
+  const cfg = loadConfig();
+  console.log(
+    cfg.hasKey
+      ? `[railway] AI generation enabled (model: ${cfg.model}).`
+      : `[railway] No ANTHROPIC_API_KEY — using built-in keyword router (see railway.config.example.json).`
+  );
 
   const registered = globalShortcut.register(HOTKEY, toggleWindow);
   if (!registered) {

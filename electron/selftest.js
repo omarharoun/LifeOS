@@ -14,8 +14,10 @@
  * Test-only; the shipped app entry is electron/main.js.
  * ------------------------------------------------------------------
  */
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
+const { loadConfig } = require("./config");
+const { generateSurface } = require("./generate");
 
 app.disableHardwareAcceleration();
 
@@ -27,6 +29,13 @@ const check = (name, ok) => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 app.whenReady().then(async () => {
+  // Mirror main.js's generate handler so the preload→IPC round-trip is real.
+  ipcMain.handle("railway:generate", async (_e, request) => {
+    const cfg = loadConfig();
+    return generateSurface(request, { apiKey: cfg.apiKey, model: cfg.model });
+  });
+  ipcMain.on("window:hide", () => {});
+
   const win = new BrowserWindow({
     width: 640,
     height: 460,
@@ -115,6 +124,21 @@ app.whenReady().then(async () => {
     })()
   `);
   check("editing a composer field updates it", editOk === true);
+
+  // M2: the generate IPC round-trips through the real main process. Without a
+  // key it must return the graceful needKey signal (renderer then falls back).
+  const genResult = await win.webContents.executeJavaScript(
+    `window.railway.generate("reply to sarah")`
+  );
+  const genOk = process.env.ANTHROPIC_API_KEY
+    ? genResult?.ok === true && genResult?.surface?.blocks?.length >= 1
+    : genResult?.ok === false && genResult?.needKey === true;
+  check(
+    process.env.ANTHROPIC_API_KEY
+      ? "generate IPC produces a valid Surface (live key)"
+      : "generate IPC round-trips and signals needKey (no key → fallback)",
+    genOk === true
+  );
 
   const allOk = checks.every((c) => c.ok);
   console.log(allOk ? "\nSELF-TEST: PASS" : "\nSELF-TEST: FAIL");

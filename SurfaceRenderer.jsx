@@ -211,11 +211,14 @@ function SurfaceView({ surface, data, onWrite, onAction, dissolving }) {
 export default function App() {
   const [data, setData] = useState(initialData);
   const [surfaceKey, setSurfaceKey] = useState("email_draft");
+  const [genSurface, setGenSurface] = useState(null); // M2: AI-generated surface
+  const [busy, setBusy] = useState(false);
   const [dissolving, setDissolving] = useState(false);
   const [toast, setToast] = useState(null);
   const [query, setQuery] = useState("");
 
-  const surface = surfaceKey ? SURFACES[surfaceKey] : null;
+  // A generated surface wins; otherwise fall back to the hardcoded examples.
+  const surface = genSurface ?? (surfaceKey ? SURFACES[surfaceKey] : null);
 
   const flash = useCallback((msg) => {
     setToast(msg);
@@ -229,6 +232,7 @@ export default function App() {
     setDissolving(true);
     window.setTimeout(() => {
       setSurfaceKey(null);
+      setGenSurface(null);
       setDissolving(false);
     }, 360);
   }, []);
@@ -260,24 +264,55 @@ export default function App() {
     [data, dissolve, flash]
   );
 
-  // The router: do-it vs summon. Naive keyword routing stands in for the model.
-  const summon = useCallback(
+  // Keyword fallback: used standalone (no Electron bridge) or when the AI
+  // is unavailable (no API key) or errors. The naive stand-in the AI replaces.
+  const keywordRoute = useCallback(
     (text) => {
       const t = text.toLowerCase().trim();
-      setDissolving(false);
-      if (!t) return;
+      setGenSurface(null);
+      setData(initialData); // hardcoded surfaces resolve against the mock data
       // Word boundaries so "mail" doesn't match inside "email" (which would
-      // misroute "write the vendor email" to the inbox). This naive router is
-      // the stand-in the M2 AI router replaces.
+      // misroute "write the vendor email" to the inbox).
       if (/\b(inbox|threads)\b|\bcheck\b/.test(t)) setSurfaceKey("inbox");
       else if (/\b(email|draft|write|reply|vendor|compose)\b/.test(t)) setSurfaceKey("email_draft");
       else {
         setSurfaceKey(null);
         flash(`"${text}" → the AI would just do this. No surface needed.`);
       }
-      setQuery("");
     },
     [flash]
+  );
+
+  // M2: the AI generates the screen. Type a request → main process asks Claude
+  // for a Surface, validates it against the contract, returns it here to render.
+  // Falls back to keywordRoute when there's no bridge/key or on error.
+  const summon = useCallback(
+    async (text) => {
+      setDissolving(false);
+      if (!text.trim()) return;
+      setQuery("");
+
+      if (window.railway?.generate) {
+        setBusy(true);
+        try {
+          const res = await window.railway.generate(text);
+          if (res?.ok) {
+            setData(res.data || {});
+            setSurfaceKey(null);
+            setGenSurface(res.surface);
+            return;
+          }
+          if (res && !res.needKey && res.error) flash(res.error.split("\n")[0]);
+        } catch {
+          flash("generation failed — using keyword fallback");
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      keywordRoute(text);
+    },
+    [flash, keywordRoute]
   );
 
   const styles = useMemo(() => CSS, []);
@@ -304,7 +339,9 @@ export default function App() {
         </div>
 
         <div className="canvas">
-          {surface ? (
+          {busy ? (
+            <div className="empty">thinking…</div>
+          ) : surface ? (
             <SurfaceView
               surface={surface}
               data={data}

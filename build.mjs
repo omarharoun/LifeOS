@@ -9,7 +9,8 @@
  */
 import * as esbuild from "esbuild";
 
-const ctx = await esbuild.context({
+// 1) Renderer: React + SurfaceRenderer.jsx → a browser bundle for the window.
+const rendererOpts = {
   entryPoints: ["renderer/src/main.jsx"],
   bundle: true,
   outfile: "renderer/dist/bundle.js",
@@ -20,13 +21,29 @@ const ctx = await esbuild.context({
   loader: { ".js": "jsx", ".jsx": "jsx" },
   sourcemap: true,
   logLevel: "info",
-});
+};
+
+// 2) Contract: surface-contract.ts (TS + zod) → a Node ESM module the main
+//    process dynamically imports for validation. ESM so import.meta stays
+//    native; zod is bundled in.
+const contractOpts = {
+  entryPoints: ["surface-contract.ts"],
+  bundle: true,
+  outfile: "electron/gen/contract.mjs",
+  format: "esm",
+  platform: "node",
+  target: ["node22"],
+  logLevel: "info",
+};
 
 if (process.argv.includes("--watch")) {
-  await ctx.watch();
-  console.log("[build] watching renderer for changes…");
+  const rCtx = await esbuild.context(rendererOpts);
+  const cCtx = await esbuild.context(contractOpts);
+  await Promise.all([rCtx.watch(), cCtx.watch()]);
+  console.log("[build] watching renderer + contract for changes…");
 } else {
-  await ctx.rebuild();
-  await ctx.dispose();
-  console.log("[build] renderer bundle written to renderer/dist/bundle.js");
+  await Promise.all([esbuild.build(rendererOpts), esbuild.build(contractOpts)]);
+  console.log(
+    "[build] wrote renderer/dist/bundle.js and electron/gen/contract.mjs"
+  );
 }

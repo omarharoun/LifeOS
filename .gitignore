@@ -4,3 +4,6 @@ renderer/dist/
 *.log
 .DS_Store
 .env
+electron/gen/
+
+railway.config.json
