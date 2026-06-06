@@ -14,6 +14,10 @@
  * Test-only; the shipped app entry is electron/main.js.
  * ------------------------------------------------------------------
  */
+// Hermetic: never touch the real Gmail account or send a live email, even if
+// credentials/token exist. resolveQuery → mock inbox, email.send → simulated.
+process.env.RAILWAY_NO_GMAIL = "1";
+
 const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const seams = require("./seams");

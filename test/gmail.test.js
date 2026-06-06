@@ -2,6 +2,10 @@
  * M3 Gmail tests — pure helpers + seams, no network, no credentials.
  * Run: node test/gmail.test.js
  */
+// Force the mock path so this test never touches a real (authorized) account
+// or sends a live email, even when gmail.token.json exists.
+process.env.RAILWAY_NO_GMAIL = "1";
+
 const assert = require("node:assert");
 const gmail = require("../electron/gmail");
 const seams = require("../electron/seams");

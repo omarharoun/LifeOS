@@ -19,8 +19,8 @@ const gmail = require("./gmail");
   try {
     await gmail.runConsentFlow({
       openUrl: (url) => {
-        console.log("Opening your browser to authorize Railway → Gmail…");
-        exec(`xdg-open "${url}" || open "${url}"`);
+        console.log("\nAuthorize Railway → Gmail by opening this URL:\n\n" + url + "\n");
+        exec(`xdg-open "${url}" >/dev/null 2>&1 || open "${url}" >/dev/null 2>&1`);
       },
     });
     const email = await gmail.getProfileEmail();

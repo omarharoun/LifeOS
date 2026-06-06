@@ -74,10 +74,15 @@ function shortDate(dateStr, now = new Date()) {
 
 /* ---------- config / auth ---------- */
 
+// RAILWAY_NO_GMAIL forces the mock/simulated path regardless of real
+// credentials — used by tests and the hermetic selftest so they can never
+// touch the real account or send a live email.
 function isConfigured() {
+  if (process.env.RAILWAY_NO_GMAIL) return false;
   return fs.existsSync(CRED_PATH);
 }
 function isAuthorized() {
+  if (process.env.RAILWAY_NO_GMAIL) return false;
   return fs.existsSync(CRED_PATH) && fs.existsSync(TOKEN_PATH);
 }
 
@@ -142,7 +147,9 @@ async function runConsentFlow({ openUrl } = {}) {
     server.on("error", reject);
     server.listen(0, "127.0.0.1", () => {
       const port = server.address().port;
-      oauth = makeOAuthClient(`http://127.0.0.1:${port}`);
+      // localhost (not 127.0.0.1) to match the Desktop client's registered
+      // http://localhost redirect; loopback allows any port.
+      oauth = makeOAuthClient(`http://localhost:${port}`);
       const authUrl = oauth.generateAuthUrl({
         access_type: "offline",
         prompt: "consent",
