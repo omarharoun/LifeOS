@@ -79,4 +79,10 @@ async function createEvent(args) {
   return { id: res.data.id, htmlLink: res.data.htmlLink, summary: res.data.summary };
 }
 
-module.exports = { formatEventWhen, buildEventResource, listUpcoming, createEvent };
+async function deleteEvent(id) {
+  const cal = google.calendar({ version: "v3", auth: auth.getAuthorizedClient() });
+  await cal.events.delete({ calendarId: "primary", eventId: id });
+  return { ok: true, id };
+}
+
+module.exports = { formatEventWhen, buildEventResource, listUpcoming, createEvent, deleteEvent };
