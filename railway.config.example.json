@@ -1,6 +1,10 @@
 {
-  "_comment": "Copy this to railway.config.json (gitignored) and fill in a key. Provider is inferred from the key prefix: sk-or-... → OpenRouter, sk-ant-... → Anthropic. You can also set ANTHROPIC_API_KEY / OPENROUTER_API_KEY / RAILWAY_MODEL / RAILWAY_PROVIDER in the environment or a .env file. Without a key, Railway runs with the built-in keyword router instead of AI generation.",
+  "_comment": "Copy this to railway.config.json (gitignored) and fill in ONE provider. Provider is inferred from the key prefix (sk-or-… → openrouter, sk-ant-… → anthropic) or set it explicitly. You can also use env vars / .env: ANTHROPIC_API_KEY, OPENROUTER_API_KEY, RAILWAY_PROVIDER, RAILWAY_MODEL, RAILWAY_BASE_URL, RAILWAY_HOTKEY, RAILWAY_NO_HISTORY. Without any of these, Railway runs with the built-in keyword router.",
+  "_openrouter_example": { "provider": "openrouter", "apiKey": "sk-or-v1-...", "model": "anthropic/claude-sonnet-4.5" },
   "_anthropic_example": { "provider": "anthropic", "apiKey": "sk-ant-...", "model": "claude-sonnet-4-6" },
+  "_local_example": { "provider": "local", "baseUrl": "http://localhost:11434/v1", "model": "llama3.1" },
+  "_settings_example": { "hotkey": "CommandOrControl+Space", "sendHistory": true },
+
   "provider": "openrouter",
   "apiKey": "sk-or-v1-...",
   "model": "anthropic/claude-sonnet-4.5"

@@ -60,6 +60,19 @@ Default model is `anthropic/claude-sonnet-4.5` (OpenRouter) or
 `claude-sonnet-4-6` (Anthropic); override with `RAILWAY_MODEL`. Verify a live
 key with `npm run live`. Without a key, the built-in keyword router is used.
 
+**Fully local (no key, nothing leaves the machine):** run an OpenAI-compatible
+server — [Ollama](https://ollama.com) (`ollama serve`, default
+`http://localhost:11434/v1`) or LM Studio (`http://localhost:1234/v1`) — and set:
+
+```json
+{ "provider": "local", "baseUrl": "http://localhost:11434/v1", "model": "llama3.1" }
+```
+
+or `RAILWAY_PROVIDER=local RAILWAY_BASE_URL=… RAILWAY_MODEL=…`. Pick a model that
+supports tool/function calling (generation forces a tool call). This is the
+privacy-maximal option — combine with `sendHistory:false` to keep everything on
+your machine.
+
 ### Google: Gmail + Calendar — optional
 Real inbox + send, and real agenda + event creation, via one Google OAuth
 (shared `electron/google-auth.js` — adding Calendar was just its two seam pieces

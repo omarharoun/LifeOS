@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld("railway", {
   hide: () => ipcRenderer.send("window:hide"),
   // #1: tell main a do-it is pending so it keeps the window visible.
   setPending: (pending) => ipcRenderer.send("window:pending", pending),
+  // Quit affordance for a frameless, taskbar-skipped app (tray may be hidden).
+  quit: () => ipcRenderer.send("app:quit"),
   // M2: ask the main process to generate a validated Surface for a request.
   // Returns { ok, surface, data, intent } or { ok:false, error, needKey? }.
   generate: (request) => ipcRenderer.invoke("railway:generate", request),

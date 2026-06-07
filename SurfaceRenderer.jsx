@@ -545,6 +545,15 @@ export default function App() {
           <span className="dot" />
           <span className="brand-name">railway</span>
           <span className="brand-sub">a surface only when you need one</span>
+          {typeof window !== "undefined" && window.railway?.quit && (
+            <button
+              className="quit"
+              title="Quit Railway (Ctrl+Q) · Esc just hides it"
+              onClick={() => window.railway.quit()}
+            >
+              ⏻
+            </button>
+          )}
         </header>
 
         <div className="bar">
@@ -617,6 +626,10 @@ const CSS = `
   align-self:center; box-shadow:0 0 0 4px rgba(177,77,54,.14); }
 .brand-name{ font-family:'Fraunces',serif; font-style:italic; font-size:21px; letter-spacing:.5px; }
 .brand-sub{ font-size:11px; color:var(--ink-soft); letter-spacing:.3px; }
+.quit{ margin-left:auto; border:1px solid var(--line); background:#fff; color:var(--ink-soft);
+  border-radius:8px; width:24px; height:24px; font-size:12px; cursor:pointer; line-height:1;
+  -webkit-app-region:no-drag; }
+.quit:hover{ border-color:var(--clay-soft); color:var(--clay); }
 .bar{ display:flex; align-items:center; gap:10px; background:#fffdf8;
   border:1px solid var(--line); border-radius:13px; padding:13px 16px;
   box-shadow:0 1px 0 #fff inset, 0 6px 22px -16px rgba(33,29,24,.5); }

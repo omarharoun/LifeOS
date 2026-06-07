@@ -3,7 +3,7 @@
  * Run: node test/llm.test.js
  */
 const assert = require("node:assert");
-const { toOpenAIMessages, toOpenAITools, toOpenAIToolChoice, fromOpenAIResponse } = require("../electron/llm");
+const { toOpenAIMessages, toOpenAITools, toOpenAIToolChoice, fromOpenAIResponse, makeClient } = require("../electron/llm");
 
 let passed = 0;
 const ok = (name) => {
@@ -64,7 +64,18 @@ const ok = (name) => {
     ok("OpenAI response maps back to Anthropic content (bad-JSON safe)");
   }
 
-  console.log(`\nPROVIDER TESTS: PASS (${passed}/4)`);
+  // makeClient builds a uniform Anthropic-shaped client for each provider.
+  {
+    const local = makeClient({ provider: "local", baseUrl: "http://localhost:11434/v1" });
+    assert.equal(typeof local.messages.create, "function");
+    const router = makeClient({ provider: "openrouter", apiKey: "sk-or-x" });
+    assert.equal(typeof router.messages.create, "function");
+    const anthropic = makeClient({ provider: "anthropic", apiKey: "sk-ant-x" });
+    assert.equal(typeof anthropic.messages.create, "function");
+    ok("makeClient returns an Anthropic-shaped client for local/openrouter/anthropic");
+  }
+
+  console.log(`\nPROVIDER TESTS: PASS (${passed}/5)`);
 })().catch((e) => {
   console.error("\nPROVIDER TESTS: FAIL");
   console.error(e);

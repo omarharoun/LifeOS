@@ -69,6 +69,15 @@ function createWindow() {
   win.on("blur", () => {
     if (!hasPending) hideWindow();
   });
+
+  // A background hotkey app: closing the window hides it; only an explicit
+  // Quit (which sets `quitting`) actually ends the app.
+  win.on("close", (e) => {
+    if (!quitting) {
+      e.preventDefault();
+      hideWindow();
+    }
+  });
 }
 
 function showWindow() {
@@ -96,6 +105,14 @@ app.whenReady().then(() => {
   // Renderer asks to dismiss (Esc key).
   ipcMain.on("window:hide", () => hideWindow());
 
+  // Quit affordance (in-window control / Cmd-Q) — the dependable way out when
+  // there's no taskbar and the tray may be hidden (GNOME/Wayland).
+  ipcMain.on("app:quit", () => {
+    quitting = true;
+    app.quit();
+  });
+  installAppMenu();
+
   // The renderer tells us when a do-it action is pending so we keep the window
   // visible (don't hide on blur) until it's committed or cancelled.
   ipcMain.on("window:pending", (_evt, pending) => {
@@ -114,6 +131,7 @@ app.whenReady().then(() => {
         apiKey: cfg.apiKey,
         model: cfg.model,
         provider: cfg.provider,
+        baseUrl: cfg.baseUrl,
         history,
         // #2: the semantic gate — surfaces may only reference invokable actions.
         capabilities: seams.KNOWN_CAPABILITIES,
@@ -204,6 +222,29 @@ app.whenReady().then(() => {
 // #3: a tray icon is the only always-available affordance for a frameless,
 // taskbar-skipped background app — without it, a non-developer can't get the
 // window back or quit. Click toggles; the menu shows/quits.
+// An application menu gives a working Cmd/Ctrl+Q (and Ctrl+W → hide) whenever
+// the window is focused — a reliable quit even where the tray isn't shown.
+function installAppMenu() {
+  const menu = Menu.buildFromTemplate([
+    {
+      label: "Railway",
+      submenu: [
+        { label: "Hide", accelerator: "Escape", click: () => hideWindow() },
+        { type: "separator" },
+        {
+          label: "Quit Railway",
+          accelerator: "CommandOrControl+Q",
+          click: () => {
+            quitting = true;
+            app.quit();
+          },
+        },
+      ],
+    },
+  ]);
+  Menu.setApplicationMenu(menu);
+}
+
 function setupTray(hotkey) {
   try {
     const iconPath = path.join(__dirname, "..", "build", "icon.png");

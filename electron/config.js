@@ -48,6 +48,7 @@ function inferProvider(apiKey, explicit) {
 const DEFAULT_MODEL = {
   anthropic: "claude-sonnet-4-6",
   openrouter: "anthropic/claude-sonnet-4.5",
+  local: "llama3.1", // any tool-calling-capable local model
 };
 
 function loadConfig() {
@@ -72,6 +73,9 @@ function loadConfig() {
   const model =
     process.env.RAILWAY_MODEL || env.RAILWAY_MODEL || json.model || DEFAULT_MODEL[provider];
 
+  // Base URL for a local OpenAI-compatible server (Ollama/LM Studio/llama.cpp).
+  const baseUrl = process.env.RAILWAY_BASE_URL || env.RAILWAY_BASE_URL || json.baseUrl || null;
+
   // #3: configurable global hotkey (Electron accelerator syntax).
   const hotkey =
     process.env.RAILWAY_HOTKEY || env.RAILWAY_HOTKEY || json.hotkey || "CommandOrControl+Space";
@@ -82,7 +86,11 @@ function loadConfig() {
   const noHistoryEnv = process.env.RAILWAY_NO_HISTORY || env.RAILWAY_NO_HISTORY;
   const sendHistory = noHistoryEnv ? false : json.sendHistory !== false;
 
-  return { apiKey, provider, model, hotkey, sendHistory, hasKey: Boolean(apiKey) };
+  // A local provider needs no key — generation is enabled if we have a key OR
+  // we're pointed at a local model.
+  const enabled = Boolean(apiKey) || provider === "local";
+
+  return { apiKey, provider, model, baseUrl, hotkey, sendHistory, hasKey: enabled };
 }
 
 module.exports = { loadConfig };

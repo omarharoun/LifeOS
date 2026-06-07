@@ -113,14 +113,14 @@ function doSilentlyTool() {
  */
 async function routeRequest(
   requestText,
-  { apiKey, model, provider, history = [], client, capabilities = [] } = {}
+  { apiKey, model, provider, baseUrl, history = [], client, capabilities = [] } = {}
 ) {
-  if (!apiKey && !client)
+  if (!apiKey && !client && provider !== "local")
     return { ok: false, needKey: true, error: "No API key configured." };
 
   const { validateSurface, surfaceJsonSchema, checkCapabilities } = await contract();
   const emitTool = buildToolSchema(surfaceJsonSchema());
-  client = client || makeClient({ apiKey, provider });
+  client = client || makeClient({ apiKey, provider, baseUrl });
 
   const historyBlock =
     history.length > 0
@@ -164,7 +164,7 @@ async function routeRequest(
   if (valid.ok && capsOk)
     return { ok: true, mode: "surface", surface: valid.surface, data: data || {}, intent: valid.surface.intent };
 
-  const repaired = await generateSurface(requestText, { apiKey, model, provider, history, client, capabilities });
+  const repaired = await generateSurface(requestText, { apiKey, model, provider, baseUrl, history, client, capabilities });
   if (repaired.ok) return { ok: true, mode: "surface", ...repaired };
   return repaired;
 }
@@ -199,9 +199,9 @@ function buildToolSchema(surfaceJsonSchema) {
  */
 async function generateSurface(
   requestText,
-  { apiKey, model, provider, history = [], client, capabilities = [] } = {}
+  { apiKey, model, provider, baseUrl, history = [], client, capabilities = [] } = {}
 ) {
-  if (!apiKey && !client)
+  if (!apiKey && !client && provider !== "local")
     return { ok: false, needKey: true, error: "No API key configured." };
 
   const { validateSurface, errorsForRepair, surfaceJsonSchema, checkCapabilities } = await contract();
@@ -221,7 +221,7 @@ async function generateSurface(
 
   const tool = buildToolSchema(surfaceJsonSchema());
   // `client` is injectable for tests; real runs build the provider client.
-  client = client || makeClient({ apiKey, provider });
+  client = client || makeClient({ apiKey, provider, baseUrl });
 
   // Optional memory (M5): a compact preamble of recent, relevant requests.
   const historyBlock =
