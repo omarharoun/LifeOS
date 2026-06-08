@@ -46,7 +46,7 @@ let quitting = false;
 function createWindow() {
   win = new BrowserWindow({
     width: 640,
-    height: 460,
+    height: 600,
     show: false, // start hidden; the hotkey summons it
     frame: false, // chromeless launcher
     resizable: false,

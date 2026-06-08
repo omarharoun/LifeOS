@@ -12,6 +12,7 @@
     "test": "npm run build && node test/generate.test.js && node test/route.test.js && node test/gmail.test.js && node test/calendar.test.js && node test/memory.test.js && node test/llm.test.js && node test/config.test.js",
     "live": "node test/live.js",
     "gmail-auth": "node electron/gmail-auth.js",
+    "screenshots": "npm run build && electron electron/screenshots.js",
     "selftest": "npm run build && electron electron/selftest.js",
     "dist": "npm run build && electron-builder",
     "dist:dir": "npm run build && electron-builder --dir"

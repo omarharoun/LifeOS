@@ -68,9 +68,11 @@ app.whenReady().then(async () => {
   ipcMain.handle("railway:memoryStats", async () => testMemory.stats());
   ipcMain.on("window:hide", () => {});
 
+  ipcMain.on("window:pending", () => {});
+
   const win = new BrowserWindow({
     width: 640,
-    height: 460,
+    height: 600,
     show: false,
     frame: false,
     webPreferences: {
@@ -134,6 +136,16 @@ app.whenReady().then(async () => {
     }
     return false;
   };
+
+  // Step 3: at rest the dashboard shows the ambient inbox + agenda glance
+  // (two columns, real rows) and no surface — never blank.
+  const dashOk = await waitFor(`
+    !!document.querySelector(".ambient") &&
+    document.querySelectorAll(".ambient .amb-col").length === 2 &&
+    document.querySelectorAll(".ambient .amb-row").length >= 2 &&
+    !document.querySelector(".surface")
+  `);
+  check("resting dashboard shows ambient inbox + agenda glance (never blank)", dashOk === true);
 
   // "check inbox" -> list surface with mock threads.
   await win.webContents.executeJavaScript(submit("check inbox"));
@@ -206,6 +218,12 @@ app.whenReady().then(async () => {
   }
   const sendOk = /(sent|simulated send) to .*@/i.test(sendDiag.toast) && sendDiag.surfaceGone;
   check("clicking Send invokes email.send (simulated) and dissolves", sendOk === true);
+
+  // Step 3: after the action dissolves, we land back on the dashboard, not blank.
+  const backToDash = await waitFor(`
+    !document.querySelector(".surface") && !!document.querySelector(".ambient .amb-row")
+  `);
+  check("dissolving an action returns to the dashboard (never blank)", backToDash === true);
 
   // M4: "tell Sarah I'm running late" routes to do-it → shows the catchable
   // pending bar, no surface.

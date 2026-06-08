@@ -53,6 +53,13 @@ const initialData = {
   ],
 };
 
+// Standalone demo agenda (when there's no Electron bridge to resolveQuery).
+const DEMO_AGENDA = [
+  { id: "e1", title: "Standup", when: "Today 9:30 AM", location: "Zoom" },
+  { id: "e2", title: "Lunch w/ Sarah", when: "Today 12:30 PM", location: "Cafe Luce" },
+  { id: "e3", title: "Design review", when: "Tue 3:00 PM", location: "Room 2" },
+];
+
 /* ---------- example surfaces (what the model would emit) ---------- */
 const SURFACES = {
   email_draft: {
@@ -180,6 +187,43 @@ function composerFromArgs(capability, args = {}) {
   return { surface, data: { draft } };
 }
 
+/* ---------- Step 3: resting-state ambient zone ---------- */
+// A calm glance — inbox + agenda. Deliberately no counts, badges, unread dots,
+// or anything urgency-coded; just a quiet read of what's there. Fixed frame:
+// this zone always sits up top; the AI fills the generative zone below.
+function AmbientGlance({ title, rows, empty }) {
+  return (
+    <div className="amb-col">
+      <div className="amb-head">{title}</div>
+      {rows.length === 0 ? (
+        <div className="amb-empty">{empty}</div>
+      ) : (
+        rows.slice(0, 3).map((r, i) => (
+          <div className="amb-row" key={r.id ?? i}>
+            <span className="amb-title">{r.title}</span>
+            {r.sub && <span className="amb-sub">{r.sub}</span>}
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function AmbientZone({ inbox, agenda }) {
+  const inboxRows = inbox.map((m) => ({ id: m.id, title: m.from, sub: m.snippet }));
+  const agendaRows = agenda.map((e) => ({
+    id: e.id,
+    title: e.title,
+    sub: [e.when, e.location].filter(Boolean).join(" · "),
+  }));
+  return (
+    <div className="ambient">
+      <AmbientGlance title="Inbox" rows={inboxRows} empty="nothing waiting" />
+      <AmbientGlance title="Agenda" rows={agendaRows} empty="nothing scheduled" />
+    </div>
+  );
+}
+
 /* ============================================================
  *  PRIMITIVES
  * ========================================================== */
@@ -298,13 +342,14 @@ function SurfaceView({ surface, data, onWrite, onAction, dissolving }) {
 
 export default function App() {
   const [data, setData] = useState(initialData);
-  const [surfaceKey, setSurfaceKey] = useState("email_draft");
+  const [surfaceKey, setSurfaceKey] = useState(null); // start at the resting dashboard
   const [genSurface, setGenSurface] = useState(null); // M2: AI-generated surface
   const [busy, setBusy] = useState(false);
   const [dissolving, setDissolving] = useState(false);
   const [toast, setToast] = useState(null);
   const [query, setQuery] = useState("");
   const [pending, setPending] = useState(null); // M4: a do-it action awaiting auto-commit
+  const [ambient, setAmbient] = useState({ inbox: [], agenda: [] }); // Step 3 glance
   const pendingTimer = useRef(null);
   const task = useRef(null); // M5: the in-flight task being timed/logged
 
@@ -323,6 +368,27 @@ export default function App() {
     if (countAsEdit && task.current) task.current.edits += 1;
     setData((d) => setPath(d, path, value));
   }, []);
+
+  // Step 3: refresh the resting glance (inbox + agenda). Real data via the
+  // seam when present; mock when standalone. Calm read, never urgency-coded.
+  const loadAmbient = useCallback(async () => {
+    if (window.railway?.resolveQuery) {
+      const pick = (r) => (r?.ok && Array.isArray(r.items) ? r.items : []);
+      const [inb, ag] = await Promise.all([
+        window.railway.resolveQuery("inbox").catch(() => null),
+        window.railway.resolveQuery("agenda").catch(() => null),
+      ]);
+      setAmbient({ inbox: pick(inb), agenda: pick(ag) });
+    } else {
+      setAmbient({ inbox: initialData.inbox, agenda: DEMO_AGENDA });
+    }
+  }, []);
+
+  // Load at rest: on mount, and again whenever the window is re-summoned.
+  React.useEffect(() => {
+    loadAmbient();
+    window.railway?.onShown?.(loadAmbient);
+  }, [loadAmbient]);
 
   // M5: log a completed task to memory (request, route, edits, time-to-done).
   const remember = useCallback((committed) => {
@@ -347,8 +413,9 @@ export default function App() {
       setSurfaceKey(null);
       setGenSurface(null);
       setDissolving(false);
+      loadAmbient(); // back to the resting dashboard, never blank — refreshed
     }, 360);
-  }, []);
+  }, [loadAmbient]);
 
   // CapabilityRegistry — the action seam. Args arrive resolved here, then the
   // real implementation runs in the main process (Gmail) via window.railway.invoke.
@@ -556,6 +623,9 @@ export default function App() {
           )}
         </header>
 
+        {/* Step 3: the fixed resting frame — ambient glance up top, always. */}
+        <AmbientZone inbox={ambient.inbox} agenda={ambient.agenda} />
+
         <div className="bar">
           <span className="prompt">›</span>
           <input
@@ -567,6 +637,8 @@ export default function App() {
           />
         </div>
 
+        {/* Generative zone — the AI fills this; empty at rest (never blank: the
+            ambient glance above is the resting content). */}
         <div className="canvas">
           {busy ? (
             <div className="empty">thinking…</div>
@@ -598,9 +670,7 @@ export default function App() {
               onAction={onAction}
               dissolving={dissolving}
             />
-          ) : (
-            <div className="empty">Nothing on screen. That's the point.</div>
-          )}
+          ) : null /* at rest: the ambient zone above is the content */}
         </div>
 
         {toast && <div className="toast">{toast}</div>}
@@ -630,6 +700,16 @@ const CSS = `
   border-radius:8px; width:24px; height:24px; font-size:12px; cursor:pointer; line-height:1;
   -webkit-app-region:no-drag; }
 .quit:hover{ border-color:var(--clay-soft); color:var(--clay); }
+.ambient{ display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-bottom:18px;
+  padding-bottom:16px; border-bottom:1px dashed var(--line); }
+.amb-col{ min-width:0; }
+.amb-head{ font-size:9.5px; letter-spacing:1.2px; text-transform:uppercase; color:var(--clay);
+  margin-bottom:9px; }
+.amb-row{ display:flex; flex-direction:column; gap:1px; padding:5px 0; border-bottom:1px solid var(--line); }
+.amb-row:last-child{ border-bottom:0; }
+.amb-title{ font-size:12px; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.amb-sub{ font-size:10.5px; color:var(--ink-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.amb-empty{ font-size:11px; color:#a89e8c; font-style:italic; font-family:'Fraunces',serif; padding:5px 0; }
 .bar{ display:flex; align-items:center; gap:10px; background:#fffdf8;
   border:1px solid var(--line); border-radius:13px; padding:13px 16px;
   box-shadow:0 1px 0 #fff inset, 0 6px 22px -16px rgba(33,29,24,.5); }
